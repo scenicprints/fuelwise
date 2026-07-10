@@ -1,10 +1,14 @@
 import 'package:flutter/material.dart';
 
-void main() => runApp(const FuelWiseApp());
+import 'store.dart';
+import 'log_view.dart';
 
-/// FuelWise — fuel efficiency tracker + trip planner.
-/// Phase 1 milestone: a themed app shell that proves the CI -> APK pipeline.
-/// Real features (log, dashboard, trips, stations) fill in the placeholder pages.
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await Store.instance.load();
+  runApp(const FuelWiseApp());
+}
+
 class FuelWiseApp extends StatelessWidget {
   const FuelWiseApp({super.key});
 
@@ -39,60 +43,210 @@ class HomeShell extends StatefulWidget {
 class _HomeShellState extends State<HomeShell> {
   int _index = 0;
 
-  static const List<_Destination> _destinations = [
-    _Destination('Dashboard', Icons.dashboard_outlined, Icons.dashboard, '📊'),
-    _Destination('Log', Icons.local_gas_station_outlined,
-        Icons.local_gas_station, '⛽'),
-    _Destination('Trips', Icons.map_outlined, Icons.map, '🗺️'),
-    _Destination('Stations', Icons.sell_outlined, Icons.sell, '🏷️'),
-  ];
+  @override
+  Widget build(BuildContext context) {
+    final store = Store.instance;
+    return ListenableBuilder(
+      listenable: store,
+      builder: (context, _) {
+        return Scaffold(
+          appBar: AppBar(
+            titleSpacing: 12,
+            title: const _VehicleSwitcher(),
+          ),
+          body: IndexedStack(
+            index: _index,
+            children: const [
+              _Placeholder('📊', 'Dashboard',
+                  'Efficiency, trends, and random stats land here next.'),
+              LogView(),
+              _Placeholder('🗺️', 'Trips',
+                  'Plan a drive using your real MPG — coming next.'),
+              _Placeholder('🏷️', 'Stations',
+                  'Best-value stations ranked from your log — coming next.'),
+            ],
+          ),
+          floatingActionButton: _index == 1
+              ? FloatingActionButton.extended(
+                  onPressed: () => showFillUpSheet(context),
+                  icon: const Icon(Icons.add),
+                  label: const Text('Fill-up'),
+                )
+              : null,
+          bottomNavigationBar: NavigationBar(
+            selectedIndex: _index,
+            onDestinationSelected: (i) => setState(() => _index = i),
+            destinations: const [
+              NavigationDestination(
+                  icon: Icon(Icons.dashboard_outlined),
+                  selectedIcon: Icon(Icons.dashboard),
+                  label: 'Dashboard'),
+              NavigationDestination(
+                  icon: Icon(Icons.local_gas_station_outlined),
+                  selectedIcon: Icon(Icons.local_gas_station),
+                  label: 'Log'),
+              NavigationDestination(
+                  icon: Icon(Icons.map_outlined),
+                  selectedIcon: Icon(Icons.map),
+                  label: 'Trips'),
+              NavigationDestination(
+                  icon: Icon(Icons.sell_outlined),
+                  selectedIcon: Icon(Icons.sell),
+                  label: 'Stations'),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _VehicleSwitcher extends StatelessWidget {
+  const _VehicleSwitcher();
 
   @override
   Widget build(BuildContext context) {
-    final dest = _destinations[_index];
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(dest.label),
-        centerTitle: false,
-      ),
-      body: Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
+    final store = Store.instance;
+    return PopupMenuButton<String>(
+      onSelected: (value) {
+        if (value == '__add__') {
+          _addVehicleDialog(context);
+        } else {
+          store.selectVehicle(value);
+        }
+      },
+      itemBuilder: (context) => [
+        for (final v in store.vehicles)
+          PopupMenuItem(
+            value: v.id,
+            child: Row(
+              children: [
+                Icon(
+                  v.id == store.currentVehicleId
+                      ? Icons.radio_button_checked
+                      : Icons.radio_button_unchecked,
+                  size: 18,
+                ),
+                const SizedBox(width: 10),
+                Text(v.name),
+              ],
+            ),
+          ),
+        const PopupMenuDivider(),
+        const PopupMenuItem(
+          value: '__add__',
+          child: Row(
             children: [
-              Text(dest.emoji, style: const TextStyle(fontSize: 56)),
-              const SizedBox(height: 12),
-              Text(dest.label,
-                  style: Theme.of(context).textTheme.headlineSmall),
-              const SizedBox(height: 4),
-              Text('Coming soon',
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: Theme.of(context).colorScheme.outline)),
+              Icon(Icons.add, size: 18),
+              SizedBox(width: 10),
+              Text('Add vehicle…'),
             ],
           ),
         ),
-      ),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _index,
-        onDestinationSelected: (i) => setState(() => _index = i),
-        destinations: [
-          for (final d in _destinations)
-            NavigationDestination(
-              icon: Icon(d.icon),
-              selectedIcon: Icon(d.selectedIcon),
-              label: d.label,
+      ],
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Flexible(
+            child: Text(
+              store.currentVehicle.name,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontWeight: FontWeight.w600),
             ),
+          ),
+          const Icon(Icons.arrow_drop_down),
         ],
       ),
     );
   }
 }
 
-class _Destination {
-  final String label;
-  final IconData icon;
-  final IconData selectedIcon;
+Future<void> _addVehicleDialog(BuildContext context) async {
+  final name = TextEditingController();
+  final tank = TextEditingController();
+  final formKey = GlobalKey<FormState>();
+
+  await showDialog<void>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: const Text('Add vehicle'),
+      content: Form(
+        key: formKey,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextFormField(
+              controller: name,
+              textCapitalization: TextCapitalization.words,
+              decoration: const InputDecoration(
+                labelText: 'Name',
+                hintText: 'e.g. 2018 Civic',
+              ),
+              validator: (v) =>
+                  (v == null || v.trim().isEmpty) ? 'Required' : null,
+            ),
+            const SizedBox(height: 8),
+            TextFormField(
+              controller: tank,
+              keyboardType:
+                  const TextInputType.numberWithOptions(decimal: true),
+              decoration: const InputDecoration(
+                labelText: 'Tank size (optional)',
+                suffixText: 'gal',
+              ),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: () {
+            if (!formKey.currentState!.validate()) return;
+            Store.instance.addVehicle(
+              name: name.text.trim(),
+              tankGallons: double.tryParse(tank.text.trim()),
+            );
+            Navigator.of(context).pop();
+          },
+          child: const Text('Add'),
+        ),
+      ],
+    ),
+  );
+}
+
+class _Placeholder extends StatelessWidget {
   final String emoji;
-  const _Destination(this.label, this.icon, this.selectedIcon, this.emoji);
+  final String title;
+  final String subtitle;
+  const _Placeholder(this.emoji, this.title, this.subtitle);
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(emoji, style: const TextStyle(fontSize: 56)),
+            const SizedBox(height: 12),
+            Text(title, style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 6),
+            Text(subtitle,
+                textAlign: TextAlign.center,
+                style: Theme.of(context)
+                    .textTheme
+                    .bodyMedium
+                    ?.copyWith(color: cs.outline)),
+          ],
+        ),
+      ),
+    );
+  }
 }
