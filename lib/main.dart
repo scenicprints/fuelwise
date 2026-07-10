@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'store.dart';
 import 'log_view.dart';
+import 'dashboard_view.dart';
 import 'update_checker.dart';
 
 Future<void> main() async {
@@ -83,8 +84,7 @@ class _HomeShellState extends State<HomeShell> {
           body: IndexedStack(
             index: _index,
             children: const [
-              _Placeholder('📊', 'Dashboard',
-                  'Efficiency, trends, and random stats land here next.'),
+              DashboardView(),
               LogView(),
               _Placeholder('🗺️', 'Trips',
                   'Plan a drive using your real MPG — coming next.'),
