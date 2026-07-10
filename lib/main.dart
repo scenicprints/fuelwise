@@ -7,12 +7,14 @@ import 'trips_view.dart';
 import 'stations_view.dart';
 import 'settings_view.dart';
 import 'github_sync.dart';
+import 'google_service.dart';
 import 'update_checker.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Store.instance.load();
   await SyncState.instance.init();
+  await GoogleService.instance.init();
   runApp(const FuelWiseApp());
 }
 
