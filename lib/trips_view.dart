@@ -1,4 +1,7 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import 'models.dart';
 import 'store.dart';
@@ -28,7 +31,7 @@ class _TripsViewState extends State<TripsView> {
   void initState() {
     super.initState();
     _prefillFromVehicle();
-    for (final c in [_distance, _mpg, _price, _speed, _tank]) {
+    for (final c in [_distance, _mpg, _price, _speed, _tank, _from, _to]) {
       c.addListener(() => setState(() {}));
     }
   }
@@ -98,6 +101,13 @@ class _TripsViewState extends State<TripsView> {
                   const SizedBox(width: 12),
                   Expanded(child: _field(_price, 'Fuel price', '\$/gal')),
                 ]),
+                const SizedBox(height: 6),
+                Text(
+                  'MPG & price are pre-filled from your logged fill-ups — edit if needed.',
+                  style: TextStyle(
+                      color: Theme.of(context).colorScheme.outline,
+                      fontSize: 12),
+                ),
                 const SizedBox(height: 12),
                 Row(children: [
                   Expanded(child: _field(_speed, 'Avg speed', 'mph')),
@@ -153,26 +163,24 @@ class _TripsViewState extends State<TripsView> {
             ),
             const SizedBox(height: 10),
             ...[
-              TextField(
-                controller: _from,
-                decoration: const InputDecoration(
-                  labelText: 'From',
-                  isDense: true,
-                  border: OutlineInputBorder(),
-                  prefixIcon: Icon(Icons.my_location, size: 20),
-                ),
-              ),
+              _PlaceField(
+                  controller: _from, label: 'From', icon: Icons.my_location),
               const SizedBox(height: 8),
-              TextField(
-                controller: _to,
-                decoration: const InputDecoration(
-                  labelText: 'To',
-                  isDense: true,
-                  border: OutlineInputBorder(),
-                  prefixIcon: Icon(Icons.place_outlined, size: 20),
+              _PlaceField(
+                  controller: _to, label: 'To', icon: Icons.place_outlined),
+              if (_from.text.trim().isNotEmpty &&
+                  _to.text.trim().isNotEmpty) ...[
+                const SizedBox(height: 4),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: TextButton.icon(
+                    onPressed: _openInMaps,
+                    icon: const Icon(Icons.map, size: 18),
+                    label: const Text('Open in Google Maps'),
+                  ),
                 ),
-              ),
-              const SizedBox(height: 10),
+              ],
+              const SizedBox(height: 6),
               FilledButton.tonalIcon(
                 onPressed: _routeLoading ? null : _lookupRoute,
                 icon: _routeLoading
@@ -296,6 +304,14 @@ class _TripsViewState extends State<TripsView> {
         _routeLoading = false;
       });
     }
+  }
+
+  Future<void> _openInMaps() async {
+    final from = Uri.encodeComponent(_from.text.trim());
+    final to = Uri.encodeComponent(_to.text.trim());
+    final url = 'https://www.google.com/maps/dir/?api=1'
+        '&origin=$from&destination=$to&travelmode=driving';
+    await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
   }
 
   Widget _field(TextEditingController c, String label, String suffix) {
@@ -423,5 +439,84 @@ class _TripsViewState extends State<TripsView> {
     if (name != null && name.isNotEmpty) {
       Store.instance.addTrip(_currentTrip(label: name));
     }
+  }
+}
+
+/// A text field with Google Places autocomplete suggestions (when a key is set).
+class _PlaceField extends StatefulWidget {
+  final TextEditingController controller;
+  final String label;
+  final IconData icon;
+  const _PlaceField(
+      {required this.controller, required this.label, required this.icon});
+
+  @override
+  State<_PlaceField> createState() => _PlaceFieldState();
+}
+
+class _PlaceFieldState extends State<_PlaceField> {
+  List<String> _sug = const [];
+  Timer? _debounce;
+
+  void _onChanged(String v) {
+    _debounce?.cancel();
+    if (v.trim().length < 3 || !RouteService.instance.connected) {
+      if (_sug.isNotEmpty) setState(() => _sug = const []);
+      return;
+    }
+    _debounce = Timer(const Duration(milliseconds: 350), () async {
+      final s = await RouteService.instance.autocomplete(v);
+      if (mounted) setState(() => _sug = s);
+    });
+  }
+
+  @override
+  void dispose() {
+    _debounce?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        TextField(
+          controller: widget.controller,
+          onChanged: _onChanged,
+          textCapitalization: TextCapitalization.words,
+          decoration: InputDecoration(
+            labelText: widget.label,
+            isDense: true,
+            border: const OutlineInputBorder(),
+            prefixIcon: Icon(widget.icon, size: 20),
+          ),
+        ),
+        if (_sug.isNotEmpty)
+          Container(
+            margin: const EdgeInsets.only(top: 4),
+            decoration: BoxDecoration(
+              border: Border.all(color: cs.outlineVariant),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Column(
+              children: [
+                for (final s in _sug.take(5))
+                  ListTile(
+                    dense: true,
+                    visualDensity: VisualDensity.compact,
+                    leading: const Icon(Icons.place_outlined, size: 18),
+                    title: Text(s, style: const TextStyle(fontSize: 13)),
+                    onTap: () {
+                      widget.controller.text = s;
+                      setState(() => _sug = const []);
+                    },
+                  ),
+              ],
+            ),
+          ),
+      ],
+    );
   }
 }

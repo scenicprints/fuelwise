@@ -7,12 +7,14 @@ import 'trips_view.dart';
 import 'stations_view.dart';
 import 'settings_view.dart';
 import 'github_sync.dart';
+import 'google_service.dart';
 import 'update_checker.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Store.instance.load();
   await SyncState.instance.init();
+  await RouteService.instance.init();
   runApp(const FuelWiseApp());
 }
 
@@ -84,7 +86,9 @@ class _HomeShellState extends State<HomeShell> {
           ),
           body: IndexedStack(
             index: _index,
-            children: const [
+            // Fresh (non-const) instances each build so the tabs rebuild when
+            // the Store changes (e.g. deleting a saved trip) via ListenableBuilder.
+            children: [
               DashboardView(),
               LogView(),
               TripsView(),

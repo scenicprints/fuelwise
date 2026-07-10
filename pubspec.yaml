@@ -1,7 +1,7 @@
 name: fuelwise
 description: "FuelWise — track fuel efficiency, spending, and best-value stations, and plan trips with your real MPG."
 publish_to: 'none'
-version: 0.14.0+14
+version: 0.15.0+15
 
 environment:
   sdk: '>=3.4.0 <4.0.0'

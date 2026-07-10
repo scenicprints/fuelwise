@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'github_sync.dart';
+import 'google_service.dart';
 import 'update_checker.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -109,6 +110,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
           _updateCard(context),
           const SizedBox(height: 16),
           const _CloudSection(),
+          const SizedBox(height: 16),
+          const _GoogleSection(),
           const SizedBox(height: 24),
           Text('Your data is signed and updated from GitHub Releases.',
               textAlign: TextAlign.center,
@@ -404,5 +407,97 @@ class _CloudSectionState extends State<_CloudSection> {
       ),
     );
     if (ok == true) SyncState.instance.pull();
+  }
+}
+
+class _GoogleSection extends StatefulWidget {
+  const _GoogleSection();
+
+  @override
+  State<_GoogleSection> createState() => _GoogleSectionState();
+}
+
+class _GoogleSectionState extends State<_GoogleSection> {
+  final _key = TextEditingController();
+
+  @override
+  void dispose() {
+    _key.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return ListenableBuilder(
+      listenable: RouteService.instance,
+      builder: (context, _) {
+        final g = RouteService.instance;
+        return Card(
+          margin: EdgeInsets.zero,
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(children: [
+                  Icon(Icons.map_outlined, color: cs.primary),
+                  const SizedBox(width: 10),
+                  Text('Google Maps',
+                      style: Theme.of(context).textTheme.titleMedium),
+                ]),
+                const SizedBox(height: 12),
+                if (!g.connected) ...[
+                  Text(
+                    'Basic routing works without this. A Google Maps key adds '
+                    'place search (autocomplete) and live gas prices. The key '
+                    'needs Routes API + Places API (New) allowed on it.',
+                    style: TextStyle(color: cs.outline, fontSize: 13),
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: _key,
+                    obscureText: true,
+                    decoration: const InputDecoration(
+                      labelText: 'Paste API key',
+                      border: OutlineInputBorder(),
+                      isDense: true,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  FilledButton.icon(
+                    onPressed: () {
+                      final k = _key.text.trim();
+                      if (k.isNotEmpty) RouteService.instance.connect(k);
+                    },
+                    icon: const Icon(Icons.check),
+                    label: const Text('Save key'),
+                  ),
+                ] else ...[
+                  Row(children: [
+                    Icon(Icons.check_circle, color: cs.primary, size: 20),
+                    const SizedBox(width: 8),
+                    const Expanded(
+                        child: Text('Google key saved',
+                            style: TextStyle(fontWeight: FontWeight.w600))),
+                  ]),
+                  const SizedBox(height: 6),
+                  Text('Autocomplete, Google routing, and gas prices are on.',
+                      style: TextStyle(color: cs.outline, fontSize: 12)),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: TextButton(
+                      onPressed: () => RouteService.instance.disconnect(),
+                      child:
+                          Text('Remove key', style: TextStyle(color: cs.error)),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        );
+      },
+    );
   }
 }
