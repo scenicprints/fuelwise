@@ -42,6 +42,12 @@ jobs:
           flutter create --platforms=android --org com.fuelwise --project-name fuelwise _scaffold
           cp -r _scaffold/android ./android
           rm -rf _scaffold
+          # Flutter only puts INTERNET in the debug manifest; release builds need
+          # it added explicitly or all networking (updates, sync) fails silently.
+          M=android/app/src/main/AndroidManifest.xml
+          grep -q 'android.permission.INTERNET' "$M" || \
+            sed -i 's|<application|<uses-permission android:name="android.permission.INTERNET"/>\n    <application|' "$M"
+          echo "--- manifest head ---"; head -n 12 "$M"
 
       - name: Get packages
         run: flutter pub get

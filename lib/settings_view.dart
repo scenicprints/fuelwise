@@ -33,17 +33,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _check() async {
     setState(() => _state = _UpdateState.checking);
-    final latest = await fetchLatestRelease();
-    if (!mounted) return;
-    if (latest == null) {
-      setState(() => _state = _UpdateState.error);
-      return;
+    try {
+      final latest = await fetchLatestRelease();
+      if (!mounted) return;
+      if (latest == null) {
+        setState(() => _state = _UpdateState.error);
+        return;
+      }
+      final newer = compareVersions(latest.version, _version) > 0;
+      setState(() {
+        _info = latest;
+        _state = newer ? _UpdateState.available : _UpdateState.upToDate;
+      });
+    } catch (_) {
+      if (mounted) setState(() => _state = _UpdateState.error);
     }
-    final newer = compareVersions(latest.version, _version) > 0;
-    setState(() {
-      _info = latest;
-      _state = newer ? _UpdateState.available : _UpdateState.upToDate;
-    });
   }
 
   @override
