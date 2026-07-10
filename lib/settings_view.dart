@@ -19,6 +19,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
   _UpdateState _state = _UpdateState.idle;
   UpdateInfo? _info;
 
+  bool _downloading = false;
+  double? _dlProgress;
+  String _dlStatus = '';
+
   @override
   void initState() {
     super.initState();
@@ -48,6 +52,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
       });
     } catch (_) {
       if (mounted) setState(() => _state = _UpdateState.error);
+    }
+  }
+
+  Future<void> _install(UpdateInfo info) async {
+    setState(() {
+      _downloading = true;
+      _dlProgress = null;
+      _dlStatus = 'Starting…';
+    });
+    try {
+      await downloadAndInstall(info, onStatus: (p, s) {
+        if (mounted) setState(() {
+          _dlProgress = p;
+          _dlStatus = s;
+        });
+      });
+    } catch (_) {
+      if (mounted) setState(() => _dlStatus = 'Download failed — try again.');
+    } finally {
+      if (mounted) setState(() => _downloading = false);
     }
   }
 
@@ -162,18 +186,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
             ],
             const SizedBox(height: 14),
-            FilledButton.icon(
-              onPressed: () => launchDownload(info),
-              icon: const Icon(Icons.download),
-              label: const Text('Download & install'),
-              style:
-                  FilledButton.styleFrom(minimumSize: const Size.fromHeight(46)),
-            ),
-            const SizedBox(height: 6),
-            Text(
-                'Downloads the new APK — tap it in your notifications to install '
-                'over the top.',
-                style: TextStyle(color: cs.outline, fontSize: 12)),
+            if (_downloading) ...[
+              LinearProgressIndicator(value: _dlProgress),
+              const SizedBox(height: 8),
+              Text(_dlStatus, style: TextStyle(color: cs.outline, fontSize: 12)),
+            ] else ...[
+              FilledButton.icon(
+                onPressed: () => _install(info),
+                icon: const Icon(Icons.system_update),
+                label: const Text('Update now'),
+                style: FilledButton.styleFrom(
+                    minimumSize: const Size.fromHeight(46)),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                  'Downloads in the app, then Android asks you to confirm the '
+                  'install.',
+                  style: TextStyle(color: cs.outline, fontSize: 12)),
+            ],
           ],
         );
         break;

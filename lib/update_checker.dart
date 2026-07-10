@@ -1,8 +1,11 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import 'package:open_filex/open_filex.dart';
 import 'package:package_info_plus/package_info_plus.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 /// The public code repo whose GitHub Releases we check for new APKs.
@@ -128,6 +131,44 @@ Future<void> launchDownload(UpdateInfo info) async {
   await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
 }
 
+/// Downloads the release APK inside the app (reporting progress) and hands it
+/// straight to Android's package installer — no browser, no Downloads folder.
+/// Android still shows its own install-confirm screen (required for sideloaded
+/// apps); this just removes the file-hunting in between.
+Future<void> downloadAndInstall(
+  UpdateInfo info, {
+  void Function(double? progress, String status)? onStatus,
+}) async {
+  final url = info.apkUrl ?? info.releaseUrl;
+  final client = http.Client();
+  try {
+    onStatus?.call(null, 'Connecting…');
+    final resp = await client.send(http.Request('GET', Uri.parse(url)));
+    final total = resp.contentLength ?? 0;
+
+    final dir =
+        await getExternalStorageDirectory() ?? await getTemporaryDirectory();
+    final file = File('${dir.path}/fuelwise-${info.version}.apk');
+    final sink = file.openWrite();
+
+    var received = 0;
+    await for (final chunk in resp.stream) {
+      received += chunk.length;
+      sink.add(chunk);
+      final p = total > 0 ? received / total : null;
+      onStatus?.call(
+          p, 'Downloading… ${p != null ? '${(p * 100).round()}%' : ''}');
+    }
+    await sink.close();
+
+    onStatus?.call(1.0, 'Opening installer…');
+    await OpenFilex.open(file.path,
+        type: 'application/vnd.android.package-archive');
+  } finally {
+    client.close();
+  }
+}
+
 Future<void> showUpdateDialog(BuildContext context, UpdateInfo info) async {
   await showDialog<void>(
     context: context,
@@ -156,13 +197,18 @@ Future<void> showUpdateDialog(BuildContext context, UpdateInfo info) async {
           child: const Text('Later'),
         ),
         FilledButton(
-          onPressed: () async {
-            final url = info.apkUrl ?? info.releaseUrl;
-            await launchUrl(Uri.parse(url),
-                mode: LaunchMode.externalApplication);
-            if (context.mounted) Navigator.pop(context);
+          onPressed: () {
+            final messenger = ScaffoldMessenger.of(context);
+            Navigator.pop(context);
+            messenger.showSnackBar(
+                const SnackBar(content: Text('Downloading update…')));
+            downloadAndInstall(info).catchError((_) {
+              messenger.showSnackBar(const SnackBar(
+                  content: Text(
+                      'Update download failed — open the ℹ️ screen to retry.')));
+            });
           },
-          child: const Text('Download'),
+          child: const Text('Update'),
         ),
       ],
     ),
