@@ -1,7 +1,7 @@
 name: fuelwise
 description: "FuelWise — track fuel efficiency, spending, and best-value stations, and plan trips with your real MPG."
 publish_to: 'none'
-version: 0.15.0+15
+version: 0.16.0+16
 
 environment:
   sdk: '>=3.4.0 <4.0.0'
@@ -17,6 +17,7 @@ dependencies:
   flutter_secure_storage: ^9.0.0
   path_provider: ^2.1.0
   open_filex: ^4.3.2
+  geolocator: ^13.0.0
 
 dev_dependencies:
   flutter_test:

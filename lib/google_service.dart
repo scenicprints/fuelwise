@@ -272,7 +272,8 @@ class RouteService extends ChangeNotifier {
           prices[type] = units + nanos / 1e9;
         }
       }
-      if (prices.isEmpty) continue; // only stations that actually report prices
+      // Include stations even without reported prices (e.g. Costco/warehouse
+      // fuel often isn't published to Google) — they just show a blank price.
       stations.add(GasStation(
         name: (p['displayName']?['text']) as String? ?? 'Gas station',
         address: (p['formattedAddress']) as String? ?? '',
@@ -281,7 +282,8 @@ class RouteService extends ChangeNotifier {
         prices: prices,
       ));
     }
-    stations.sort((a, b) => (a.regular ?? 9999).compareTo(b.regular ?? 9999));
+    // Priced stations first (cheapest -> dearest), unpriced ones after.
+    stations.sort((a, b) => (a.regular ?? 1e9).compareTo(b.regular ?? 1e9));
     return stations;
   }
 }

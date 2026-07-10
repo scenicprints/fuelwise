@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
 
 import 'models.dart';
 import 'store.dart';
@@ -66,6 +67,56 @@ class _StationsViewState extends State<StationsView> {
       if (!mounted) return;
       setState(() {
         _error = 'Something went wrong.';
+        _loading = false;
+      });
+    }
+  }
+
+  Future<void> _useMyLocation() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      if (!await Geolocator.isLocationServiceEnabled()) {
+        setState(() {
+          _error = 'Turn on location services to use this.';
+          _loading = false;
+        });
+        return;
+      }
+      var perm = await Geolocator.checkPermission();
+      if (perm == LocationPermission.denied) {
+        perm = await Geolocator.requestPermission();
+      }
+      if (perm == LocationPermission.denied ||
+          perm == LocationPermission.deniedForever) {
+        setState(() {
+          _error = 'Location permission denied — type a place instead.';
+          _loading = false;
+        });
+        return;
+      }
+      final pos = await Geolocator.getCurrentPosition();
+      final stations =
+          await RouteService.instance.gasNear(pos.latitude, pos.longitude);
+      if (!mounted) return;
+      setState(() {
+        _gas = stations;
+        _loading = false;
+        _error =
+            stations.isEmpty ? 'No stations reporting prices near you.' : null;
+      });
+    } on RouteException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _error = e.message;
+        _loading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _error = 'Could not get your location.';
         _loading = false;
       });
     }
@@ -173,6 +224,14 @@ class _StationsViewState extends State<StationsView> {
                       : const Text('Find'),
                 ),
               ]),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton.icon(
+                  onPressed: _loading ? null : _useMyLocation,
+                  icon: const Icon(Icons.my_location, size: 18),
+                  label: const Text('Use my location'),
+                ),
+              ),
               if (_error != null) ...[
                 const SizedBox(height: 8),
                 Text(_error!, style: TextStyle(color: cs.error, fontSize: 12)),
@@ -180,7 +239,8 @@ class _StationsViewState extends State<StationsView> {
               if (_gas != null && _gas!.isNotEmpty) ...[
                 const SizedBox(height: 12),
                 for (var i = 0; i < _gas!.length; i++)
-                  _gasTile(context, _gas![i], cheapest: i == 0),
+                  _gasTile(context, _gas![i],
+                      cheapest: i == 0 && _gas![i].regular != null),
               ],
             ],
           ],
@@ -252,10 +312,11 @@ class _StationsViewState extends State<StationsView> {
           Column(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              Text(s.regular != null ? money(s.regular!) : '–',
+              Text(s.regular != null ? money(s.regular!) : '—',
                   style: const TextStyle(
                       fontSize: 20, fontWeight: FontWeight.bold)),
-              Text('regular', style: TextStyle(color: cs.outline, fontSize: 11)),
+              Text(s.regular != null ? 'regular' : 'no price',
+                  style: TextStyle(color: cs.outline, fontSize: 11)),
             ],
           ),
         ],

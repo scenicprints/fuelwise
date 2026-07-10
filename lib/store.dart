@@ -118,6 +118,12 @@ class Store extends ChangeNotifier {
     return v;
   }
 
+  /// The passed vehicle is the stored instance edited in place; just persist.
+  void updateVehicle(Vehicle v) {
+    _save();
+    notifyListeners();
+  }
+
   void deleteVehicle(String id) {
     vehicles.removeWhere((v) => v.id == id);
     fillups.removeWhere((f) => f.vehicleId == id);

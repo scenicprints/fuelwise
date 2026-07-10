@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'store.dart';
+import 'models.dart';
 import 'log_view.dart';
 import 'dashboard_view.dart';
 import 'trips_view.dart';
@@ -140,6 +141,8 @@ class _VehicleSwitcher extends StatelessWidget {
       onSelected: (value) {
         if (value == '__add__') {
           _addVehicleDialog(context);
+        } else if (value == '__edit__') {
+          _editVehicleDialog(context, store.currentVehicle);
         } else {
           store.selectVehicle(value);
         }
@@ -162,6 +165,16 @@ class _VehicleSwitcher extends StatelessWidget {
             ),
           ),
         const PopupMenuDivider(),
+        const PopupMenuItem(
+          value: '__edit__',
+          child: Row(
+            children: [
+              Icon(Icons.edit_outlined, size: 18),
+              SizedBox(width: 10),
+              Text('Edit current vehicle…'),
+            ],
+          ),
+        ),
         const PopupMenuItem(
           value: '__add__',
           child: Row(
@@ -242,6 +255,89 @@ Future<void> _addVehicleDialog(BuildContext context) async {
             Navigator.of(context).pop();
           },
           child: const Text('Add'),
+        ),
+      ],
+    ),
+  );
+}
+
+Future<void> _editVehicleDialog(BuildContext context, Vehicle v) async {
+  final name = TextEditingController(text: v.name);
+  final tank = TextEditingController(
+      text: v.tankGallons != null ? v.tankGallons.toString() : '');
+  final formKey = GlobalKey<FormState>();
+
+  await showDialog<void>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: const Text('Edit vehicle'),
+      content: Form(
+        key: formKey,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextFormField(
+              controller: name,
+              textCapitalization: TextCapitalization.words,
+              decoration: const InputDecoration(labelText: 'Name'),
+              validator: (x) =>
+                  (x == null || x.trim().isEmpty) ? 'Required' : null,
+            ),
+            const SizedBox(height: 8),
+            TextFormField(
+              controller: tank,
+              keyboardType:
+                  const TextInputType.numberWithOptions(decimal: true),
+              decoration: const InputDecoration(
+                labelText: 'Tank size (optional)',
+                suffixText: 'gal',
+              ),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () async {
+            final ok = await showDialog<bool>(
+              context: context,
+              builder: (c) => AlertDialog(
+                title: const Text('Delete vehicle?'),
+                content: Text('Removes "${v.name}" and its fill-ups.'),
+                actions: [
+                  TextButton(
+                      onPressed: () => Navigator.pop(c, false),
+                      child: const Text('Cancel')),
+                  FilledButton(
+                    style: FilledButton.styleFrom(
+                        backgroundColor: Theme.of(c).colorScheme.error),
+                    onPressed: () => Navigator.pop(c, true),
+                    child: const Text('Delete'),
+                  ),
+                ],
+              ),
+            );
+            if (ok == true) {
+              Store.instance.deleteVehicle(v.id);
+              if (context.mounted) Navigator.of(context).pop();
+            }
+          },
+          child: Text('Delete',
+              style: TextStyle(color: Theme.of(context).colorScheme.error)),
+        ),
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: () {
+            if (!formKey.currentState!.validate()) return;
+            v.name = name.text.trim();
+            v.tankGallons = double.tryParse(tank.text.trim());
+            Store.instance.updateVehicle(v);
+            Navigator.of(context).pop();
+          },
+          child: const Text('Save'),
         ),
       ],
     ),
