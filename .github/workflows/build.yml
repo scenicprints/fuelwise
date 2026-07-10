@@ -49,8 +49,27 @@ jobs:
       - name: Build release APK
         run: flutter build apk --release
 
-      - name: Stage APK
-        run: cp build/app/outputs/flutter-apk/app-release.apk fuelwise.apk
+      # Sign with our own stable keystore (from repo secrets) so every release
+      # shares a signature and Android accepts in-app updates between them.
+      - name: Sign APK
+        env:
+          KS_B64: ${{ secrets.KEYSTORE_B64 }}
+          KS_PASS: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+        run: |
+          echo "$KS_B64" | base64 -d > release.p12
+          SDK="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
+          BT="$(ls -d $SDK/build-tools/*/ | sort -V | tail -1)"
+          echo "Using build-tools: $BT"
+          "${BT}zipalign" -f 4 build/app/outputs/flutter-apk/app-release.apk aligned.apk
+          "${BT}apksigner" sign \
+            --ks release.p12 --ks-type PKCS12 \
+            --ks-pass "pass:$KS_PASS" \
+            --ks-key-alias "$KEY_ALIAS" \
+            --key-pass "pass:$KS_PASS" \
+            --out fuelwise.apk aligned.apk
+          "${BT}apksigner" verify --print-certs fuelwise.apk
+          rm -f release.p12
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
