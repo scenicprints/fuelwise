@@ -1,0 +1,23 @@
+# Dart / Flutter
+.dart_tool/
+.packages
+build/
+.flutter-plugins
+.flutter-plugins-dependencies
+pubspec.lock
+
+# Generated per-build in CI (see .github/workflows/build.yml).
+# When we need native config (BLE/location perms, signing) we'll commit android/ instead.
+/android/
+/ios/
+/linux/
+/macos/
+/windows/
+/web/
+
+# Editors / OS
+.idea/
+.vscode/
+*.iml
+.DS_Store
+*.log

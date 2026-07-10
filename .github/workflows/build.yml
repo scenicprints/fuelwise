@@ -1,0 +1,66 @@
+name: Build APK
+
+on:
+  push:
+    branches: [ main ]
+    tags: [ 'v*' ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Flutter version
+        run: flutter --version
+
+      # The repo tracks only lib/, pubspec.yaml, and assets. The android/ project
+      # is generated fresh here so builds are deterministic and the repo stays clean.
+      # (Generated in a temp dir first so it never overwrites our lib/main.dart.)
+      - name: Generate android platform files
+        run: |
+          flutter create --platforms=android --org com.fuelwise --project-name fuelwise _scaffold
+          cp -r _scaffold/android ./android
+          rm -rf _scaffold
+
+      - name: Get packages
+        run: flutter pub get
+
+      - name: Build release APK
+        run: flutter build apk --release
+
+      - name: Stage APK
+        run: cp build/app/outputs/flutter-apk/app-release.apk fuelwise.apk
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuelwise-apk
+          path: fuelwise.apk
+
+      - name: Publish to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: fuelwise.apk
+          generate_release_notes: true
