@@ -122,6 +122,12 @@ Future<void> manualCheck(BuildContext context) async {
   }
 }
 
+/// Opens the APK download (or release page) in the browser to install.
+Future<void> launchDownload(UpdateInfo info) async {
+  final url = info.apkUrl ?? info.releaseUrl;
+  await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+}
+
 Future<void> showUpdateDialog(BuildContext context, UpdateInfo info) async {
   await showDialog<void>(
     context: context,

@@ -4,6 +4,7 @@ import 'store.dart';
 import 'log_view.dart';
 import 'dashboard_view.dart';
 import 'trips_view.dart';
+import 'settings_view.dart';
 import 'update_checker.dart';
 
 Future<void> main() async {
@@ -69,16 +70,12 @@ class _HomeShellState extends State<HomeShell> {
             titleSpacing: 12,
             title: const _VehicleSwitcher(),
             actions: [
-              PopupMenuButton<String>(
-                onSelected: (v) {
-                  if (v == 'update') manualCheck(context);
-                },
-                itemBuilder: (_) => const [
-                  PopupMenuItem(
-                    value: 'update',
-                    child: Text('Check for updates'),
-                  ),
-                ],
+              IconButton(
+                tooltip: 'About & updates',
+                icon: const Icon(Icons.info_outline),
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const SettingsScreen()),
+                ),
               ),
             ],
           ),
