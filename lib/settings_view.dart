@@ -451,7 +451,7 @@ class _GoogleSectionState extends State<_GoogleSection> {
                   Text(
                     'Adds real driving distances and route comparison on the '
                     'Trips tab (and live gas prices soon). Needs a Google Maps '
-                    'Platform API key with the Directions API enabled.',
+                    'Platform API key with the Routes API enabled.',
                     style: TextStyle(color: cs.outline, fontSize: 13),
                   ),
                   Align(

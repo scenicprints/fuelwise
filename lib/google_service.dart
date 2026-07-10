@@ -53,63 +53,71 @@ class GoogleService extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Uses the current Routes API (routes.googleapis.com). The legacy Directions
+  /// API is often not enable-able on new Google Cloud projects, so we use this.
   Future<List<RouteOption>> directions(
       String origin, String destination) async {
     if (!connected) throw GoogleException('No Google API key set.');
-    final uri = Uri.https('maps.googleapis.com', '/maps/api/directions/json', {
-      'origin': origin,
-      'destination': destination,
-      'alternatives': 'true',
-      'key': _key!,
-    });
+    final uri =
+        Uri.parse('https://routes.googleapis.com/directions/v2:computeRoutes');
 
     final http.Response res;
     try {
-      res = await http.get(uri).timeout(const Duration(seconds: 15));
+      res = await http
+          .post(
+            uri,
+            headers: {
+              'Content-Type': 'application/json',
+              'X-Goog-Api-Key': _key!,
+              'X-Goog-FieldMask':
+                  'routes.distanceMeters,routes.duration,routes.description',
+            },
+            body: json.encode({
+              'origin': {'address': origin},
+              'destination': {'address': destination},
+              'travelMode': 'DRIVE',
+              'computeAlternativeRoutes': true,
+            }),
+          )
+          .timeout(const Duration(seconds: 15));
     } catch (_) {
       throw GoogleException('Network error reaching Google.');
     }
 
     final data = json.decode(res.body) as Map<String, dynamic>;
-    final status = data['status'] as String? ?? 'UNKNOWN';
-    if (status != 'OK') {
-      final msg = data['error_message'] as String?;
-      throw GoogleException(_friendly(status, msg));
+    if (res.statusCode != 200) {
+      final err = data['error'] as Map<String, dynamic>?;
+      throw GoogleException(
+          _friendly(res.statusCode, err?['message'] as String?));
     }
 
     final routes = <RouteOption>[];
     for (final r in (data['routes'] as List? ?? const [])) {
-      double meters = 0, seconds = 0;
-      for (final leg in (r['legs'] as List? ?? const [])) {
-        meters += ((leg['distance']?['value']) as num? ?? 0).toDouble();
-        seconds += ((leg['duration']?['value']) as num? ?? 0).toDouble();
-      }
+      final meters = ((r['distanceMeters']) as num? ?? 0).toDouble();
+      final durStr = (r['duration'] as String?) ?? '0s';
+      final seconds = double.tryParse(durStr.replaceAll('s', '')) ?? 0;
       routes.add(RouteOption(
-        summary: (r['summary'] as String?) ?? 'Route',
+        summary: (r['description'] as String?) ?? 'Route',
         miles: meters / 1609.344,
         minutes: seconds / 60.0,
       ));
     }
-    if (routes.isEmpty) throw GoogleException('No routes found.');
+    if (routes.isEmpty) throw GoogleException('No route found between those.');
     return routes;
   }
 
-  String _friendly(String status, String? msg) {
-    switch (status) {
-      case 'REQUEST_DENIED':
-        return 'Key rejected — enable the Directions API and check restrictions.'
-            '${msg != null ? '\n$msg' : ''}';
-      case 'ZERO_RESULTS':
-        return 'No route between those places.';
-      case 'NOT_FOUND':
-        return "Couldn't find one of those locations.";
-      case 'OVER_DAILY_LIMIT':
-      case 'OVER_QUERY_LIMIT':
-        return 'Google quota exceeded (check billing on the project).';
-      case 'INVALID_REQUEST':
-        return 'Enter both a start and destination.';
+  String _friendly(int code, String? msg) {
+    switch (code) {
+      case 400:
+        return "Couldn't read those places — try \"City, State\" for each.";
+      case 401:
+      case 403:
+        return 'Key rejected. Enable the Routes API on your project and make '
+            'sure billing is on.${msg != null ? '\n$msg' : ''}';
+      case 429:
+        return 'Google quota exceeded — check billing on the project.';
       default:
-        return 'Google error: $status';
+        return 'Google error ($code)${msg != null ? ': $msg' : ''}';
     }
   }
 }
