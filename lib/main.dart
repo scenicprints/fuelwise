@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'store.dart';
 import 'log_view.dart';
+import 'update_checker.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -42,6 +43,18 @@ class HomeShell extends StatefulWidget {
 
 class _HomeShellState extends State<HomeShell> {
   int _index = 0;
+  bool _checkedUpdate = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!_checkedUpdate) {
+        _checkedUpdate = true;
+        autoCheck(context);
+      }
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -53,6 +66,19 @@ class _HomeShellState extends State<HomeShell> {
           appBar: AppBar(
             titleSpacing: 12,
             title: const _VehicleSwitcher(),
+            actions: [
+              PopupMenuButton<String>(
+                onSelected: (v) {
+                  if (v == 'update') manualCheck(context);
+                },
+                itemBuilder: (_) => const [
+                  PopupMenuItem(
+                    value: 'update',
+                    child: Text('Check for updates'),
+                  ),
+                ],
+              ),
+            ],
           ),
           body: IndexedStack(
             index: _index,
