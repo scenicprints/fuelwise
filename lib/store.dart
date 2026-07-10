@@ -5,7 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'models.dart';
 
 /// App state + local persistence. Phase 1 persists to SharedPreferences as a
-/// single JSON blob; Phase 7 will layer GitHub sync on top of this same store.
+/// single JSON blob; a later phase layers GitHub sync on top of this same store.
 class Store extends ChangeNotifier {
   Store._();
   static final Store instance = Store._();
@@ -14,6 +14,7 @@ class Store extends ChangeNotifier {
 
   final List<Vehicle> vehicles = [];
   final List<FillUp> fillups = [];
+  final List<Trip> trips = [];
   String? currentVehicleId;
 
   SharedPreferences? _prefs;
@@ -32,6 +33,10 @@ class Store extends ChangeNotifier {
           ..clear()
           ..addAll((data['fillups'] as List)
               .map((e) => FillUp.fromJson(e as Map<String, dynamic>)));
+        trips
+          ..clear()
+          ..addAll(((data['trips'] as List?) ?? const [])
+              .map((e) => Trip.fromJson(e as Map<String, dynamic>)));
         currentVehicleId = data['currentVehicleId'] as String?;
       } catch (_) {
         // Corrupt/older payload — fall through to seeding.
@@ -61,6 +66,7 @@ class Store extends ChangeNotifier {
       json.encode({
         'vehicles': vehicles.map((v) => v.toJson()).toList(),
         'fillups': fillups.map((f) => f.toJson()).toList(),
+        'trips': trips.map((t) => t.toJson()).toList(),
         'currentVehicleId': currentVehicleId,
       }),
     );
@@ -68,9 +74,9 @@ class Store extends ChangeNotifier {
 
   // ---- vehicles ----
 
-  Vehicle get currentVehicle =>
-      vehicles.firstWhere((v) => v.id == currentVehicleId,
-          orElse: () => vehicles.first);
+  Vehicle get currentVehicle => vehicles.firstWhere(
+      (v) => v.id == currentVehicleId,
+      orElse: () => vehicles.first);
 
   void selectVehicle(String id) {
     currentVehicleId = id;
@@ -95,11 +101,6 @@ class Store extends ChangeNotifier {
     _save();
     notifyListeners();
     return v;
-  }
-
-  void updateVehicle(Vehicle v) {
-    _save();
-    notifyListeners();
   }
 
   void deleteVehicle(String id) {
@@ -152,6 +153,23 @@ class Store extends ChangeNotifier {
     }
     final list = s.toList()..sort();
     return list;
+  }
+
+  // ---- trips ----
+
+  List<Trip> get savedTrips =>
+      trips.toList()..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+
+  void addTrip(Trip t) {
+    trips.add(t);
+    _save();
+    notifyListeners();
+  }
+
+  void deleteTrip(String id) {
+    trips.removeWhere((t) => t.id == id);
+    _save();
+    notifyListeners();
   }
 
   String newId() => _newId();

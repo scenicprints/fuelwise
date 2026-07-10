@@ -206,3 +206,72 @@ String money(num v) => '\$${v.toStringAsFixed(2)}';
 String mpg1(num? v) => v == null ? '–' : v.toStringAsFixed(1);
 
 String num1(num? v) => v == null ? '–' : v.toStringAsFixed(1);
+
+String duration(double hours) {
+  if (hours <= 0) return '–';
+  final total = (hours * 60).round();
+  final h = total ~/ 60;
+  final m = total % 60;
+  if (h <= 0) return '${m}m';
+  if (m == 0) return '${h}h';
+  return '${h}h ${m}m';
+}
+
+/// A saved trip estimate. Fuel/cost/time/stops are derived from the inputs.
+class Trip {
+  final String id;
+  String label;
+  double distance; // miles
+  double mpg;
+  double pricePerGallon;
+  double speedMph;
+  double? tankGallons;
+  DateTime createdAt;
+
+  Trip({
+    required this.id,
+    required this.label,
+    required this.distance,
+    required this.mpg,
+    required this.pricePerGallon,
+    required this.speedMph,
+    this.tankGallons,
+    required this.createdAt,
+  });
+
+  double get gallons => mpg > 0 ? distance / mpg : 0;
+  double get fuelCost => gallons * pricePerGallon;
+  double get hours => speedMph > 0 ? distance / speedMph : 0;
+
+  int get stops {
+    final tank = tankGallons;
+    if (tank == null || tank <= 0 || mpg <= 0) return 0;
+    final range = tank * mpg;
+    if (range <= 0) return 0;
+    final s = (distance / range).ceil() - 1;
+    return s < 0 ? 0 : s;
+  }
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'label': label,
+        'distance': distance,
+        'mpg': mpg,
+        'pricePerGallon': pricePerGallon,
+        'speedMph': speedMph,
+        'tankGallons': tankGallons,
+        'createdAt': createdAt.toIso8601String(),
+      };
+
+  factory Trip.fromJson(Map<String, dynamic> j) => Trip(
+        id: j['id'] as String,
+        label: (j['label'] as String?) ?? 'Trip',
+        distance: (j['distance'] as num).toDouble(),
+        mpg: (j['mpg'] as num).toDouble(),
+        pricePerGallon: (j['pricePerGallon'] as num).toDouble(),
+        speedMph: (j['speedMph'] as num?)?.toDouble() ?? 60,
+        tankGallons: (j['tankGallons'] as num?)?.toDouble(),
+        createdAt: DateTime.tryParse(j['createdAt'] as String? ?? '') ??
+            DateTime.now(),
+      );
+}
