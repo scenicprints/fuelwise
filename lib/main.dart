@@ -7,6 +7,7 @@ import 'dashboard_view.dart';
 import 'trips_view.dart';
 import 'stations_view.dart';
 import 'settings_view.dart';
+import 'obd_view.dart';
 import 'github_sync.dart';
 import 'google_service.dart';
 import 'update_checker.dart';
@@ -76,6 +77,13 @@ class _HomeShellState extends State<HomeShell> {
             titleSpacing: 12,
             title: const _VehicleSwitcher(),
             actions: [
+              IconButton(
+                tooltip: 'Live data (OBD)',
+                icon: const Icon(Icons.bluetooth),
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const ObdScreen()),
+                ),
+              ),
               IconButton(
                 tooltip: 'About & updates',
                 icon: const Icon(Icons.info_outline),
