@@ -133,7 +133,6 @@ class _TripsViewState extends State<TripsView> {
 
   Widget _routeCard(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    final connected = GoogleService.instance.connected;
     return Card(
       margin: EdgeInsets.zero,
       child: Padding(
@@ -147,14 +146,13 @@ class _TripsViewState extends State<TripsView> {
               Text('Look up a route',
                   style: Theme.of(context).textTheme.titleMedium),
             ]),
+            const SizedBox(height: 6),
+            Text(
+              'Type two places — free OpenStreetMap routing, no key needed.',
+              style: TextStyle(color: cs.outline, fontSize: 13),
+            ),
             const SizedBox(height: 10),
-            if (!connected)
-              Text(
-                'Add your Google Maps key in the ℹ️ menu to look up real driving '
-                'distance and compare routes.',
-                style: TextStyle(color: cs.outline, fontSize: 13),
-              )
-            else ...[
+            ...[
               TextField(
                 controller: _from,
                 decoration: const InputDecoration(
@@ -278,13 +276,13 @@ class _TripsViewState extends State<TripsView> {
       _routeError = null;
     });
     try {
-      final routes = await GoogleService.instance.directions(from, to);
+      final routes = await RouteService.instance.route(from, to);
       if (!mounted) return;
       setState(() {
         _routes = routes;
         _routeLoading = false;
       });
-    } on GoogleException catch (e) {
+    } on RouteException catch (e) {
       if (!mounted) return;
       setState(() {
         _routeError = e.message;

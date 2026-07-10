@@ -1,123 +1,98 @@
 import 'dart:convert';
 
-import 'package:flutter/foundation.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
 
-/// A single route option returned by the Directions API.
+/// A single route option.
 class RouteOption {
-  final String summary; // e.g. "I-15 N"
+  final String summary;
   final double miles;
   final double minutes;
   const RouteOption(
       {required this.summary, required this.miles, required this.minutes});
 }
 
-class GoogleException implements Exception {
+class RouteException implements Exception {
   final String message;
-  GoogleException(this.message);
+  RouteException(this.message);
   @override
   String toString() => message;
 }
 
-/// Holds the user's Google Maps Platform API key (secure storage) and wraps the
-/// Directions API. Phase 2b will add Places (gas prices) using the same key.
-class GoogleService extends ChangeNotifier {
-  GoogleService._();
-  static final GoogleService instance = GoogleService._();
+/// Keyless routing using free OpenStreetMap community services:
+/// Nominatim geocodes place names, OSRM computes the driving route.
+/// No API key, no billing, no setup — plenty accurate for trip estimates.
+class RouteService {
+  RouteService._();
+  static final RouteService instance = RouteService._();
 
-  static const _keyId = 'fuelwise.google_key';
-  final FlutterSecureStorage _storage = const FlutterSecureStorage();
+  static const _ua = 'FuelWise/1.0 (personal fuel tracker)';
 
-  String? _key;
-  bool get connected => _key != null && _key!.isNotEmpty;
-
-  Future<void> init() async {
-    try {
-      _key = await _storage.read(key: _keyId);
-    } catch (_) {
-      _key = null;
-    }
-    notifyListeners();
-  }
-
-  Future<void> connect(String key) async {
-    _key = key.trim();
-    await _storage.write(key: _keyId, value: _key);
-    notifyListeners();
-  }
-
-  Future<void> disconnect() async {
-    _key = null;
-    await _storage.delete(key: _keyId);
-    notifyListeners();
-  }
-
-  /// Uses the current Routes API (routes.googleapis.com). The legacy Directions
-  /// API is often not enable-able on new Google Cloud projects, so we use this.
-  Future<List<RouteOption>> directions(
-      String origin, String destination) async {
-    if (!connected) throw GoogleException('No Google API key set.');
-    final uri =
-        Uri.parse('https://routes.googleapis.com/directions/v2:computeRoutes');
-
+  Future<({double lat, double lon})> _geocode(String q) async {
+    final uri = Uri.https('nominatim.openstreetmap.org', '/search', {
+      'q': q,
+      'format': 'json',
+      'limit': '1',
+      'countrycodes': 'us',
+    });
     final http.Response res;
     try {
       res = await http
-          .post(
-            uri,
-            headers: {
-              'Content-Type': 'application/json',
-              'X-Goog-Api-Key': _key!,
-              'X-Goog-FieldMask':
-                  'routes.distanceMeters,routes.duration,routes.description',
-            },
-            body: json.encode({
-              'origin': {'address': origin},
-              'destination': {'address': destination},
-              'travelMode': 'DRIVE',
-              'computeAlternativeRoutes': true,
-            }),
-          )
+          .get(uri, headers: {'User-Agent': _ua})
           .timeout(const Duration(seconds: 15));
     } catch (_) {
-      throw GoogleException('Network error reaching Google.');
+      throw RouteException('Network error finding "$q".');
     }
-
-    final data = json.decode(res.body) as Map<String, dynamic>;
     if (res.statusCode != 200) {
-      final err = data['error'] as Map<String, dynamic>?;
-      throw GoogleException(
-          _friendly(res.statusCode, err?['message'] as String?));
+      throw RouteException('Location lookup failed (${res.statusCode}).');
+    }
+    final list = json.decode(res.body) as List;
+    if (list.isEmpty) {
+      throw RouteException('Couldn\'t find "$q" — try adding a city and state.');
+    }
+    final m = list.first as Map<String, dynamic>;
+    return (
+      lat: double.parse(m['lat'] as String),
+      lon: double.parse(m['lon'] as String),
+    );
+  }
+
+  Future<List<RouteOption>> route(String origin, String destination) async {
+    final o = await _geocode(origin);
+    final d = await _geocode(destination);
+    final coords = '${o.lon},${o.lat};${d.lon},${d.lat}';
+    final uri = Uri.https(
+        'router.project-osrm.org', '/route/v1/driving/$coords', {
+      'overview': 'false',
+      'alternatives': 'true',
+    });
+
+    final http.Response res;
+    try {
+      res = await http.get(uri).timeout(const Duration(seconds: 20));
+    } catch (_) {
+      throw RouteException('Network error getting the route.');
+    }
+    if (res.statusCode != 200) {
+      throw RouteException('Routing failed (${res.statusCode}).');
+    }
+    final data = json.decode(res.body) as Map<String, dynamic>;
+    if (data['code'] != 'Ok') {
+      throw RouteException('No driving route found between those.');
     }
 
     final routes = <RouteOption>[];
+    var i = 1;
     for (final r in (data['routes'] as List? ?? const [])) {
-      final meters = ((r['distanceMeters']) as num? ?? 0).toDouble();
-      final durStr = (r['duration'] as String?) ?? '0s';
-      final seconds = double.tryParse(durStr.replaceAll('s', '')) ?? 0;
+      final meters = ((r['distance']) as num? ?? 0).toDouble();
+      final seconds = ((r['duration']) as num? ?? 0).toDouble();
       routes.add(RouteOption(
-        summary: (r['description'] as String?) ?? 'Route',
+        summary: 'Option $i',
         miles: meters / 1609.344,
         minutes: seconds / 60.0,
       ));
+      i++;
     }
-    if (routes.isEmpty) throw GoogleException('No route found between those.');
+    if (routes.isEmpty) throw RouteException('No route found.');
     return routes;
-  }
-
-  String _friendly(int code, String? msg) {
-    switch (code) {
-      case 400:
-        return "Couldn't read those places — try \"City, State\" for each.";
-      case 401:
-      case 403:
-        return 'Key rejected. Enable the Routes API on your project and make '
-            'sure billing is on.${msg != null ? '\n$msg' : ''}';
-      case 429:
-        return 'Google quota exceeded — check billing on the project.';
-      default:
-        return 'Google error ($code)${msg != null ? ': $msg' : ''}';
-    }
   }
 }
