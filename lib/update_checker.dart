@@ -148,7 +148,17 @@ Future<void> downloadAndInstall(
 
     final dir =
         await getExternalStorageDirectory() ?? await getTemporaryDirectory();
-    final file = File('${dir.path}/fuelwise-${info.version}.apk');
+    // Reuse ONE file and clear any leftovers so updates never pile up on device.
+    try {
+      for (final f in dir.listSync()) {
+        if (f is File && f.path.toLowerCase().endsWith('.apk')) {
+          try {
+            f.deleteSync();
+          } catch (_) {}
+        }
+      }
+    } catch (_) {}
+    final file = File('${dir.path}/fuelwise-update.apk');
     final sink = file.openWrite();
 
     var received = 0;
