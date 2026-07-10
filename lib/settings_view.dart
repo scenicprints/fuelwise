@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 
+import 'github_sync.dart';
 import 'update_checker.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -77,6 +79,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
           const SizedBox(height: 24),
           _updateCard(context),
+          const SizedBox(height: 16),
+          const _CloudSection(),
           const SizedBox(height: 24),
           Text('Your data is signed and updated from GitHub Releases.',
               textAlign: TextAlign.center,
@@ -192,5 +196,179 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ),
       ),
     );
+  }
+}
+
+String _clock(DateTime d) {
+  final h = d.hour % 12 == 0 ? 12 : d.hour % 12;
+  final ap = d.hour < 12 ? 'AM' : 'PM';
+  return '$h:${d.minute.toString().padLeft(2, '0')} $ap';
+}
+
+class _CloudSection extends StatefulWidget {
+  const _CloudSection();
+
+  @override
+  State<_CloudSection> createState() => _CloudSectionState();
+}
+
+class _CloudSectionState extends State<_CloudSection> {
+  final _token = TextEditingController();
+
+  @override
+  void dispose() {
+    _token.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return ListenableBuilder(
+      listenable: SyncState.instance,
+      builder: (context, _) {
+        final sync = SyncState.instance;
+        return Card(
+          margin: EdgeInsets.zero,
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(children: [
+                  Icon(Icons.cloud_outlined, color: cs.primary),
+                  const SizedBox(width: 10),
+                  Text('Cloud backup',
+                      style: Theme.of(context).textTheme.titleMedium),
+                ]),
+                const SizedBox(height: 12),
+                if (!sync.connected)
+                  ..._disconnected(context, sync)
+                else
+                  ..._connected(context, sync),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  List<Widget> _disconnected(BuildContext context, SyncState sync) {
+    final cs = Theme.of(context).colorScheme;
+    return [
+      Text(
+        'Back up your log to your private $kDataRepo repo — versioned history '
+        'and restore on any device.',
+        style: TextStyle(color: cs.outline, fontSize: 13),
+      ),
+      Align(
+        alignment: Alignment.centerLeft,
+        child: TextButton.icon(
+          onPressed: () => launchUrl(
+            Uri.parse('https://github.com/settings/personal-access-tokens/new'),
+            mode: LaunchMode.externalApplication,
+          ),
+          icon: const Icon(Icons.open_in_new, size: 18),
+          label: const Text('Create a token'),
+        ),
+      ),
+      TextField(
+        controller: _token,
+        obscureText: true,
+        decoration: const InputDecoration(
+          labelText: 'Paste token',
+          border: OutlineInputBorder(),
+          isDense: true,
+        ),
+      ),
+      if (sync.message != null) ...[
+        const SizedBox(height: 8),
+        Text(sync.message!, style: TextStyle(color: cs.error, fontSize: 12)),
+      ],
+      const SizedBox(height: 12),
+      FilledButton.icon(
+        onPressed: sync.status == SyncStatus.busy
+            ? null
+            : () {
+                final t = _token.text.trim();
+                if (t.isNotEmpty) SyncState.instance.connect(t);
+              },
+        icon: const Icon(Icons.cloud_upload_outlined),
+        label: const Text('Connect & back up'),
+      ),
+    ];
+  }
+
+  List<Widget> _connected(BuildContext context, SyncState sync) {
+    final cs = Theme.of(context).colorScheme;
+    final busy = sync.status == SyncStatus.busy;
+    return [
+      Row(children: [
+        Icon(Icons.check_circle, color: cs.primary, size: 20),
+        const SizedBox(width: 8),
+        const Expanded(
+            child: Text('Connected',
+                style: TextStyle(fontWeight: FontWeight.w600))),
+        if (busy)
+          const SizedBox(
+              width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)),
+      ]),
+      const SizedBox(height: 6),
+      Text(
+        sync.message ??
+            (sync.lastSync != null
+                ? 'Last backup: ${_clock(sync.lastSync!)}'
+                : 'Auto-backs up when you change data.'),
+        style: TextStyle(
+            color: sync.status == SyncStatus.error ? cs.error : cs.outline,
+            fontSize: 12),
+      ),
+      const SizedBox(height: 12),
+      Row(children: [
+        Expanded(
+          child: OutlinedButton.icon(
+            onPressed: busy ? null : () => SyncState.instance.push(),
+            icon: const Icon(Icons.cloud_upload_outlined, size: 18),
+            label: const Text('Back up now'),
+          ),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: OutlinedButton.icon(
+            onPressed: busy ? null : () => _confirmRestore(context),
+            icon: const Icon(Icons.cloud_download_outlined, size: 18),
+            label: const Text('Restore'),
+          ),
+        ),
+      ]),
+      Align(
+        alignment: Alignment.centerLeft,
+        child: TextButton(
+          onPressed: () => SyncState.instance.disconnect(),
+          child: Text('Disconnect', style: TextStyle(color: cs.error)),
+        ),
+      ),
+    ];
+  }
+
+  Future<void> _confirmRestore(BuildContext context) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Restore from cloud?'),
+        content: const Text(
+            'This replaces the data on this device with the latest cloud backup.'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancel')),
+          FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Restore')),
+        ],
+      ),
+    );
+    if (ok == true) SyncState.instance.pull();
   }
 }

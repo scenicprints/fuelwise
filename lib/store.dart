@@ -24,29 +24,52 @@ class Store extends ChangeNotifier {
     final raw = _prefs!.getString(_key);
     if (raw != null) {
       try {
-        final data = json.decode(raw) as Map<String, dynamic>;
-        vehicles
-          ..clear()
-          ..addAll((data['vehicles'] as List)
-              .map((e) => Vehicle.fromJson(e as Map<String, dynamic>)));
-        fillups
-          ..clear()
-          ..addAll((data['fillups'] as List)
-              .map((e) => FillUp.fromJson(e as Map<String, dynamic>)));
-        trips
-          ..clear()
-          ..addAll(((data['trips'] as List?) ?? const [])
-              .map((e) => Trip.fromJson(e as Map<String, dynamic>)));
-        currentVehicleId = data['currentVehicleId'] as String?;
+        _applyState(json.decode(raw) as Map<String, dynamic>);
       } catch (_) {
         // Corrupt/older payload — fall through to seeding.
       }
     }
+    _ensureInvariants();
+    notifyListeners();
+  }
+
+  /// Full serializable snapshot — used for local save and cloud sync.
+  Map<String, dynamic> toStateJson() => {
+        'vehicles': vehicles.map((v) => v.toJson()).toList(),
+        'fillups': fillups.map((f) => f.toJson()).toList(),
+        'trips': trips.map((t) => t.toJson()).toList(),
+        'currentVehicleId': currentVehicleId,
+      };
+
+  void _applyState(Map<String, dynamic> data) {
+    vehicles
+      ..clear()
+      ..addAll((data['vehicles'] as List? ?? const [])
+          .map((e) => Vehicle.fromJson(e as Map<String, dynamic>)));
+    fillups
+      ..clear()
+      ..addAll((data['fillups'] as List? ?? const [])
+          .map((e) => FillUp.fromJson(e as Map<String, dynamic>)));
+    trips
+      ..clear()
+      ..addAll((data['trips'] as List? ?? const [])
+          .map((e) => Trip.fromJson(e as Map<String, dynamic>)));
+    currentVehicleId = data['currentVehicleId'] as String?;
+  }
+
+  void _ensureInvariants() {
     if (vehicles.isEmpty) _seed();
     if (currentVehicleId == null ||
         !vehicles.any((v) => v.id == currentVehicleId)) {
       currentVehicleId = vehicles.first.id;
     }
+  }
+
+  /// Replace local state with a snapshot (e.g. restored from the cloud).
+  void loadFromJson(Map<String, dynamic> data) {
+    _applyState(data);
+    _ensureInvariants();
+    _save();
     notifyListeners();
   }
 
@@ -61,15 +84,7 @@ class Store extends ChangeNotifier {
   }
 
   Future<void> _save() async {
-    await _prefs?.setString(
-      _key,
-      json.encode({
-        'vehicles': vehicles.map((v) => v.toJson()).toList(),
-        'fillups': fillups.map((f) => f.toJson()).toList(),
-        'trips': trips.map((t) => t.toJson()).toList(),
-        'currentVehicleId': currentVehicleId,
-      }),
-    );
+    await _prefs?.setString(_key, json.encode(toStateJson()));
   }
 
   // ---- vehicles ----
