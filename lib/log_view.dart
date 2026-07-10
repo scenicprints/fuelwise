@@ -156,7 +156,6 @@ Future<void> showFillUpSheet(BuildContext context, {FillUp? existing}) {
   return showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
-    useSafeArea: true,
     showDragHandle: true,
     builder: (_) => _FillForm(existing: existing),
   );
@@ -235,10 +234,13 @@ class _FillFormState extends State<_FillForm> {
 
   @override
   Widget build(BuildContext context) {
-    final bottom = MediaQuery.of(context).viewInsets.bottom;
+    final mq = MediaQuery.of(context);
+    final keyboard = mq.viewInsets.bottom;
+    final navInset = mq.viewPadding.bottom; // system nav / gesture bar
     final editing = widget.existing != null;
     return Padding(
-      padding: EdgeInsets.fromLTRB(16, 4, 16, 16 + bottom),
+      padding: EdgeInsets.fromLTRB(
+          16, 4, 16, 16 + keyboard + (keyboard > 0 ? 0.0 : navInset)),
       child: SingleChildScrollView(
         child: Form(
           key: _formKey,

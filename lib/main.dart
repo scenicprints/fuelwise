@@ -4,6 +4,7 @@ import 'store.dart';
 import 'log_view.dart';
 import 'dashboard_view.dart';
 import 'trips_view.dart';
+import 'stations_view.dart';
 import 'settings_view.dart';
 import 'update_checker.dart';
 
@@ -85,8 +86,7 @@ class _HomeShellState extends State<HomeShell> {
               DashboardView(),
               LogView(),
               TripsView(),
-              _Placeholder('🏷️', 'Stations',
-                  'Best-value stations ranked from your log — coming next.'),
+              StationsView(),
             ],
           ),
           floatingActionButton: _index == 1
