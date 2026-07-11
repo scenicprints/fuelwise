@@ -45,7 +45,7 @@ jobs:
           # Flutter only puts INTERNET in the debug manifest; release builds need
           # it added explicitly or all networking (updates, sync) fails silently.
           M=android/app/src/main/AndroidManifest.xml
-          for P in INTERNET REQUEST_INSTALL_PACKAGES ACCESS_FINE_LOCATION ACCESS_COARSE_LOCATION BLUETOOTH_SCAN BLUETOOTH_CONNECT; do
+          for P in INTERNET REQUEST_INSTALL_PACKAGES ACCESS_FINE_LOCATION ACCESS_COARSE_LOCATION ACCESS_BACKGROUND_LOCATION BLUETOOTH_SCAN BLUETOOTH_CONNECT FOREGROUND_SERVICE FOREGROUND_SERVICE_LOCATION; do
             grep -q "android.permission.$P" "$M" || \
               sed -i "s|<application|<uses-permission android:name=\"android.permission.$P\"/>\n    <application|" "$M"
           done

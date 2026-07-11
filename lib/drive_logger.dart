@@ -1,4 +1,8 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
+import 'package:geolocator/geolocator.dart';
+import 'package:geolocator_android/geolocator_android.dart';
 
 import 'models.dart';
 import 'store.dart';
@@ -27,6 +31,10 @@ class DriveLogger extends ChangeNotifier {
   double highwayGallons = 0;
   double? _minBatt;
   double? _maxBatt;
+
+  StreamSubscription<Position>? _posSub;
+  final List<List<double>> _route = [];
+  double? _startLat, _startLon, _lastLat, _lastLon;
 
   double get miles => cityMiles + highwayMiles;
   double get gallons => cityGallons + highwayGallons;
@@ -87,10 +95,50 @@ class DriveLogger extends ChangeNotifier {
     _stoppedSince = null;
     cityMiles = highwayMiles = cityGallons = highwayGallons = 0;
     _minBatt = _maxBatt = null;
+    _route.clear();
+    _startLat = _startLon = _lastLat = _lastLon = null;
+    _startGps();
     notifyListeners();
   }
 
+  /// Runs a background location stream (via a foreground service so it survives
+  /// the app being closed) to record the drive's route. Silent if no permission.
+  Future<void> _startGps() async {
+    try {
+      final perm = await Geolocator.checkPermission();
+      if (perm == LocationPermission.denied ||
+          perm == LocationPermission.deniedForever) {
+        return;
+      }
+      final settings = AndroidSettings(
+        accuracy: LocationAccuracy.high,
+        distanceFilter: 30, // metres between points
+        foregroundNotificationConfig: const ForegroundNotificationConfig(
+          notificationTitle: 'FuelWise is logging your drive',
+          notificationText: 'Recording route, MPG and battery',
+          enableWakeLock: true,
+        ),
+      );
+      _posSub =
+          Geolocator.getPositionStream(locationSettings: settings).listen((p) {
+        _startLat ??= p.latitude;
+        _startLon ??= p.longitude;
+        _lastLat = p.latitude;
+        _lastLon = p.longitude;
+        if (_route.length < 3000) _route.add([p.latitude, p.longitude]);
+      });
+    } catch (_) {
+      // Location unavailable — keep logging MPG from OBD without a route.
+    }
+  }
+
+  Future<void> _stopGps() async {
+    await _posSub?.cancel();
+    _posSub = null;
+  }
+
   void _end() {
+    _stopGps();
     final start = _start;
     if (start != null && miles > 0.2) {
       final store = Store.instance;
@@ -105,6 +153,11 @@ class DriveLogger extends ChangeNotifier {
         highwayGallons: highwayGallons,
         minBattery: _minBatt,
         maxBattery: _maxBatt,
+        startLat: _startLat,
+        startLon: _startLon,
+        endLat: _lastLat,
+        endLon: _lastLon,
+        route: List<List<double>>.from(_route),
       ));
     }
     logging = false;
@@ -113,6 +166,7 @@ class DriveLogger extends ChangeNotifier {
     _stoppedSince = null;
     cityMiles = highwayMiles = cityGallons = highwayGallons = 0;
     _minBatt = _maxBatt = null;
+    _route.clear();
     notifyListeners();
   }
 

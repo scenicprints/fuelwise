@@ -24,6 +24,9 @@ class ObdService extends ChangeNotifier {
   BluetoothCharacteristic? _notify;
   StreamSubscription<List<int>>? _notifySub;
   StreamSubscription<List<ScanResult>>? _scanSub;
+  StreamSubscription<BluetoothConnectionState>? _connSub;
+  Future<void> _queue = Future.value(); // serializes all OBD commands
+  bool _tearingDown = false;
 
   // Live readings
   double? speedMph;
@@ -53,19 +56,48 @@ class ObdService extends ChangeNotifier {
     } catch (_) {}
   }
 
-  /// Reconnect to the last-used dongle without making the user scan/tap.
+  /// Reconnect to the last-used dongle without the user scanning/tapping.
+  /// Scans briefly and connects when the saved dongle actually appears — more
+  /// reliable than connecting blind by id.
   Future<void> autoConnect() async {
-    if (status == ObdStatus.connected || status == ObdStatus.connecting) return;
+    if (status == ObdStatus.connected ||
+        status == ObdStatus.connecting ||
+        status == ObdStatus.scanning) return;
     String? id;
     try {
       final prefs = await SharedPreferences.getInstance();
       id = prefs.getString(_lastDeviceKey);
     } catch (_) {}
     if (id == null) return;
+
     try {
-      await connect(BluetoothDevice.fromId(id));
+      if (!(await FlutterBluePlus.isSupported)) return;
+      status = ObdStatus.scanning;
+      notifyListeners();
+      final done = Completer<BluetoothDevice?>();
+      final sub = FlutterBluePlus.scanResults.listen((results) {
+        for (final r in results) {
+          if (r.device.remoteId.str == id && !done.isCompleted) {
+            done.complete(r.device);
+          }
+        }
+      });
+      await FlutterBluePlus.startScan(timeout: const Duration(seconds: 12));
+      final device = await done.future
+          .timeout(const Duration(seconds: 13), onTimeout: () => null);
+      await sub.cancel();
+      await FlutterBluePlus.stopScan();
+      if (device != null) {
+        await connect(device);
+      } else if (status == ObdStatus.scanning) {
+        status = ObdStatus.idle;
+        notifyListeners();
+      }
     } catch (_) {
-      // Dongle not in range / powered off — user can scan manually.
+      if (status == ObdStatus.scanning) {
+        status = ObdStatus.idle;
+        notifyListeners();
+      }
     }
   }
 
@@ -129,6 +161,14 @@ class ObdService extends ChangeNotifier {
       status = ObdStatus.connected;
       _log('Connected to ${device.platformName}');
       _rememberDevice(device.remoteId.str);
+      // Detect the dongle losing power (car turned off) and end the drive.
+      _connSub = device.connectionState.listen((s) {
+        if (s == BluetoothConnectionState.disconnected &&
+            status == ObdStatus.connected) {
+          _log('Dongle dropped (car off?) — ending drive');
+          _teardown(callDisconnect: false);
+        }
+      });
       notifyListeners();
       await _init();
     } catch (e) {
@@ -148,8 +188,16 @@ class ObdService extends ChangeNotifier {
     }
   }
 
+  /// All commands funnel through one queue so the poll loop and one-off reads
+  /// (e.g. trouble codes) never overlap and corrupt each other's responses.
   Future<String> _send(String cmd,
-      {Duration timeout = const Duration(seconds: 5)}) async {
+      {Duration timeout = const Duration(seconds: 5)}) {
+    final result = _queue.then((_) => _sendRaw(cmd, timeout));
+    _queue = result.then((_) {}, onError: (_) {});
+    return result;
+  }
+
+  Future<String> _sendRaw(String cmd, Duration timeout) async {
     final w = _write;
     if (w == null) return '';
     _pending = Completer<String>();
@@ -282,13 +330,40 @@ class ObdService extends ChangeNotifier {
     return codes;
   }
 
-  Future<void> disconnect() async {
-    DriveLogger.instance.finalizeIfLogging();
+  /// Diagnostic probe: reads the supported-PID bitmaps + candidate battery
+  /// PIDs and dumps raw responses to the log so we can identify the Accord's
+  /// real battery-health value. Run once, then share the diagnostics.
+  Future<void> probeBattery() async {
+    if (status != ObdStatus.connected) return;
+    _log('--- battery / PID probe ---');
+    const pids = [
+      '0100', '0120', '0140', '0160', '0180', '01A0', '01C0', '01E0', // support maps
+      '015B', '015C', '015D', '0143', '0144', '0146', '015F', // candidates
+    ];
+    for (final pid in pids) {
+      final r = await _send(pid, timeout: const Duration(seconds: 4));
+      _log('probe $pid -> ${r.replaceAll(RegExp(r'[\r\n]'), ' ').trim()}');
+    }
+    _log('--- probe done — share this log ---');
+    notifyListeners();
+  }
+
+  Future<void> disconnect() => _teardown(callDisconnect: true);
+
+  Future<void> _teardown({required bool callDisconnect}) async {
+    if (_tearingDown) return;
+    _tearingDown = true;
+    status = ObdStatus.idle; // stops the poll loop
+    DriveLogger.instance.finalizeIfLogging(); // save the in-progress drive
+    await _connSub?.cancel();
+    _connSub = null;
     await _notifySub?.cancel();
     await _scanSub?.cancel();
-    try {
-      await _device?.disconnect();
-    } catch (_) {}
+    if (callDisconnect) {
+      try {
+        await _device?.disconnect();
+      } catch (_) {}
+    }
     _write = null;
     _notify = null;
     speedMph = null;
@@ -298,8 +373,8 @@ class ObdService extends ChangeNotifier {
     mafGps = null;
     batteryLifePct = null;
     evMode = false;
-    status = ObdStatus.idle;
     _log('Disconnected');
+    _tearingDown = false;
     notifyListeners();
   }
 

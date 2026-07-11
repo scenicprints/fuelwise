@@ -287,8 +287,13 @@ class Drive {
   double highwayMiles;
   double cityGallons;
   double highwayGallons;
-  double? minBattery; // % (hybrid battery life PID, if available)
+  double? minBattery; // % (battery charge / SOC)
   double? maxBattery;
+  double? startLat;
+  double? startLon;
+  double? endLat;
+  double? endLon;
+  List<List<double>> route; // downsampled GPS path: [[lat,lon], ...]
 
   Drive({
     required this.id,
@@ -301,6 +306,11 @@ class Drive {
     this.highwayGallons = 0,
     this.minBattery,
     this.maxBattery,
+    this.startLat,
+    this.startLon,
+    this.endLat,
+    this.endLon,
+    this.route = const [],
   });
 
   double get miles => cityMiles + highwayMiles;
@@ -334,6 +344,11 @@ class Drive {
         'highwayGallons': highwayGallons,
         'minBattery': minBattery,
         'maxBattery': maxBattery,
+        'startLat': startLat,
+        'startLon': startLon,
+        'endLat': endLat,
+        'endLon': endLon,
+        'route': route,
       };
 
   factory Drive.fromJson(Map<String, dynamic> j) => Drive(
@@ -347,6 +362,14 @@ class Drive {
         highwayGallons: (j['highwayGallons'] as num?)?.toDouble() ?? 0,
         minBattery: (j['minBattery'] as num?)?.toDouble(),
         maxBattery: (j['maxBattery'] as num?)?.toDouble(),
+        startLat: (j['startLat'] as num?)?.toDouble(),
+        startLon: (j['startLon'] as num?)?.toDouble(),
+        endLat: (j['endLat'] as num?)?.toDouble(),
+        endLon: (j['endLon'] as num?)?.toDouble(),
+        route: ((j['route'] as List?) ?? const [])
+            .map((p) =>
+                (p as List).map((n) => (n as num).toDouble()).toList())
+            .toList(),
       );
 }
 

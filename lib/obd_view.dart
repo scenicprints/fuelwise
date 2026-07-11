@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
 
 import 'obd_service.dart';
 import 'drive_logger.dart';
@@ -17,6 +18,8 @@ class _ObdScreenState extends State<ObdScreen> {
     // Try to reconnect to the last dongle automatically when the screen opens.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       ObdService.instance.autoConnect();
+      // Location powers drive-route logging; ask once when this screen opens.
+      Geolocator.requestPermission();
     });
   }
 
@@ -140,7 +143,7 @@ class _ObdScreenState extends State<ObdScreen> {
               '%'),
           _tile(
               context,
-              'Battery health',
+              'Battery charge',
               obd.batteryLifePct == null
                   ? '–'
                   : obd.batteryLifePct!.toStringAsFixed(0),
@@ -208,6 +211,15 @@ class _ObdScreenState extends State<ObdScreen> {
                   padding: const EdgeInsets.only(top: 4),
                   child: Text('⚠ $c', style: const TextStyle(fontSize: 13)),
                 ),
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              onPressed: () => obd.probeBattery(),
+              icon: const Icon(Icons.battery_unknown, size: 18),
+              label: const Text('Probe battery sensors'),
+            ),
+            Text('Reads candidate sensors into the log below — share it so I '
+                'can build the real battery-health meter for your Accord.',
+                style: TextStyle(color: cs.outline, fontSize: 11)),
           ],
         ),
       ),

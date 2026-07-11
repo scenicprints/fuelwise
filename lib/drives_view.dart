@@ -25,6 +25,7 @@ class DrivesView extends StatelessWidget {
           _trendCard(context, stats),
           const SizedBox(height: 12),
         ],
+        ..._frequentSection(context, drives),
         Text('Recent drives',
             style: Theme.of(context).textTheme.titleMedium),
         const SizedBox(height: 8),
@@ -156,11 +157,12 @@ class DrivesView extends StatelessWidget {
         ? 'mostly electric ⚡'
         : '${d.mpg!.toStringAsFixed(1)} mpg';
     final batt = (d.minBattery != null && d.maxBattery != null)
-        ? ' · battery ${d.minBattery!.toStringAsFixed(0)}–${d.maxBattery!.toStringAsFixed(0)}%'
+        ? ' · charge ${d.minBattery!.toStringAsFixed(0)}–${d.maxBattery!.toStringAsFixed(0)}%'
         : '';
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
       child: ListTile(
+        onTap: () => _showDriveDetail(context, d),
         title: Text('${fmtDate(d.start)} · ${d.miles.toStringAsFixed(1)} mi'),
         subtitle: Text(
           '${d.cityMiles.toStringAsFixed(0)} city / ${d.highwayMiles.toStringAsFixed(0)} hwy · '
@@ -174,6 +176,116 @@ class DrivesView extends StatelessWidget {
       ),
     );
   }
+
+  // Groups drives by destination (rounded end coordinate) to surface routes
+  // the user repeats — the foundation of "best route" learning.
+  List<Widget> _frequentSection(BuildContext context, List<Drive> drives) {
+    final groups = <String, List<Drive>>{};
+    for (final d in drives) {
+      if (d.endLat == null || d.endLon == null) continue;
+      final key = '${(d.endLat! * 1000).round()}_${(d.endLon! * 1000).round()}';
+      groups.putIfAbsent(key, () => []).add(d);
+    }
+    final regular = groups.values.where((g) => g.length >= 2).toList()
+      ..sort((a, b) => b.length.compareTo(a.length));
+    if (regular.isEmpty) return const [];
+
+    final cs = Theme.of(context).colorScheme;
+    return [
+      Text('Your regular drives',
+          style: Theme.of(context).textTheme.titleMedium),
+      const SizedBox(height: 4),
+      Text(
+          'Same destination, driven repeatedly — route suggestions sharpen as '
+          'you log more.',
+          style: TextStyle(color: cs.outline, fontSize: 12)),
+      const SizedBox(height: 8),
+      for (final g in regular) _regularCard(context, g),
+      const SizedBox(height: 12),
+    ];
+  }
+
+  Widget _regularCard(BuildContext context, List<Drive> g) {
+    final cs = Theme.of(context).colorScheme;
+    double mi = 0, gal = 0;
+    for (final d in g) {
+      mi += d.miles;
+      gal += d.gallons;
+    }
+    final avgMi = mi / g.length;
+    final mpg = gal > 0.01 ? mi / gal : null;
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      child: ListTile(
+        leading: const Icon(Icons.repeat),
+        title:
+            Text('Driven ${g.length}× · ~${avgMi.toStringAsFixed(0)} mi each'),
+        subtitle: Text(
+            mpg == null ? 'mostly electric ⚡' : 'avg ${mpg.toStringAsFixed(1)} mpg',
+            style: TextStyle(color: cs.outline, fontSize: 13)),
+      ),
+    );
+  }
+}
+
+String _timeOfDay(DateTime d) {
+  final h = d.hour % 12 == 0 ? 12 : d.hour % 12;
+  final ap = d.hour < 12 ? 'AM' : 'PM';
+  return '$h:${d.minute.toString().padLeft(2, '0')} $ap';
+}
+
+void _showDriveDetail(BuildContext context, Drive d) {
+  showModalBottomSheet<void>(
+    context: context,
+    showDragHandle: true,
+    useSafeArea: true,
+    builder: (context) {
+      final cs = Theme.of(context).colorScheme;
+      Widget row(String k, String v) => Padding(
+            padding: const EdgeInsets.symmetric(vertical: 6),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(k, style: TextStyle(color: cs.outline)),
+                Flexible(
+                  child: Text(v,
+                      textAlign: TextAlign.right,
+                      style: const TextStyle(fontWeight: FontWeight.w600)),
+                ),
+              ],
+            ),
+          );
+      String seg(double mi, double? mpg) =>
+          '${mi.toStringAsFixed(1)} mi · ${mpg == null ? 'electric ⚡' : '${mpg.toStringAsFixed(1)} mpg'}';
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('${fmtDate(d.start)} · ${_timeOfDay(d.start)}',
+                style: Theme.of(context).textTheme.titleLarge),
+            const SizedBox(height: 12),
+            row('Distance', '${d.miles.toStringAsFixed(1)} mi'),
+            row('Duration', duration(d.minutes / 60.0)),
+            row('Avg speed', '${d.avgMph.toStringAsFixed(0)} mph'),
+            const Divider(height: 24),
+            row('City', seg(d.cityMiles, d.cityMpg)),
+            row('Highway', seg(d.highwayMiles, d.highwayMpg)),
+            row('Overall',
+                d.mpg == null ? 'mostly electric ⚡' : '${d.mpg!.toStringAsFixed(1)} mpg'),
+            const Divider(height: 24),
+            row('Fuel used', '${d.gallons.toStringAsFixed(2)} gal'),
+            if (d.route.isNotEmpty)
+              row('Route', '${d.route.length} GPS points'),
+            if (d.minBattery != null && d.maxBattery != null)
+              row('Battery charge',
+                  '${d.minBattery!.toStringAsFixed(0)}–${d.maxBattery!.toStringAsFixed(0)}%'),
+          ],
+        ),
+      );
+    },
+  );
 }
 
 class _SparkPainter extends CustomPainter {
