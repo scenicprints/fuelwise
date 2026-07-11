@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 enum ObdStatus { idle, scanning, connecting, connected, error }
 
@@ -35,6 +36,31 @@ class ObdService extends ChangeNotifier {
   void _log(String s) {
     log.insert(0, s);
     if (log.length > 80) log.removeLast();
+  }
+
+  static const _lastDeviceKey = 'fuelwise.obd_last_device';
+
+  Future<void> _rememberDevice(String id) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_lastDeviceKey, id);
+    } catch (_) {}
+  }
+
+  /// Reconnect to the last-used dongle without making the user scan/tap.
+  Future<void> autoConnect() async {
+    if (status == ObdStatus.connected || status == ObdStatus.connecting) return;
+    String? id;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      id = prefs.getString(_lastDeviceKey);
+    } catch (_) {}
+    if (id == null) return;
+    try {
+      await connect(BluetoothDevice.fromId(id));
+    } catch (_) {
+      // Dongle not in range / powered off — user can scan manually.
+    }
   }
 
   Future<void> scan() async {
@@ -96,6 +122,7 @@ class ObdService extends ChangeNotifier {
       _notifySub = _notify!.onValueReceived.listen(_onData);
       status = ObdStatus.connected;
       _log('Connected to ${device.platformName}');
+      _rememberDevice(device.remoteId.str);
       notifyListeners();
       await _init();
     } catch (e) {

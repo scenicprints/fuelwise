@@ -2,8 +2,22 @@ import 'package:flutter/material.dart';
 
 import 'obd_service.dart';
 
-class ObdScreen extends StatelessWidget {
+class ObdScreen extends StatefulWidget {
   const ObdScreen({super.key});
+
+  @override
+  State<ObdScreen> createState() => _ObdScreenState();
+}
+
+class _ObdScreenState extends State<ObdScreen> {
+  @override
+  void initState() {
+    super.initState();
+    // Try to reconnect to the last dongle automatically when the screen opens.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      ObdService.instance.autoConnect();
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
