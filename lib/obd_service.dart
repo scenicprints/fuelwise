@@ -98,7 +98,6 @@ class ObdService extends ChangeNotifier {
       _log('Connected to ${device.platformName}');
       notifyListeners();
       await _init();
-      _startPolling();
     } catch (e) {
       _fail('Connect failed: $e');
     }
