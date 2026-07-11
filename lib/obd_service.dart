@@ -21,7 +21,6 @@ class ObdService extends ChangeNotifier {
   BluetoothCharacteristic? _notify;
   StreamSubscription<List<int>>? _notifySub;
   StreamSubscription<List<ScanResult>>? _scanSub;
-  Timer? _poll;
 
   // Live readings
   double? speedMph;
@@ -117,7 +116,8 @@ class ObdService extends ChangeNotifier {
     }
   }
 
-  Future<String> _send(String cmd) async {
+  Future<String> _send(String cmd,
+      {Duration timeout = const Duration(seconds: 5)}) async {
     final w = _write;
     if (w == null) return '';
     _pending = Completer<String>();
@@ -125,24 +125,42 @@ class ObdService extends ChangeNotifier {
     _log('> $cmd');
     await w.write('$cmd\r'.codeUnits,
         withoutResponse: w.properties.writeWithoutResponse);
-    return _pending!.future.timeout(const Duration(seconds: 4), onTimeout: () {
+    return _pending!.future.timeout(timeout, onTimeout: () {
       _pending = null;
       return '';
     });
   }
 
   Future<void> _init() async {
-    await _send('ATZ');
-    await Future.delayed(const Duration(milliseconds: 300));
-    await _send('ATE0');
-    await _send('ATL0');
-    await _send('ATSP0');
+    await _send('ATZ', timeout: const Duration(seconds: 6));
+    await Future.delayed(const Duration(milliseconds: 400));
+    await _send('ATE0'); // echo off
+    await _send('ATL0'); // linefeeds off
+    await _send('ATH0'); // headers off
+    await _send('ATSP0'); // auto-detect protocol
+
+    // The first real query makes the adapter search for and LOCK the car's
+    // protocol — that can take several seconds. Be patient and never fire
+    // another command into it, or it reports "SEARCHING... STOPPED".
+    _log('Establishing link to the car…');
+    for (var attempt = 0; attempt < 4; attempt++) {
+      final r = await _send('0100', timeout: const Duration(seconds: 12));
+      if (_parse(r, '4100').isNotEmpty) {
+        _log('Link established.');
+        break;
+      }
+      await Future.delayed(const Duration(milliseconds: 600));
+    }
+    _pollLoop();
   }
 
-  void _startPolling() {
-    _poll?.cancel();
-    _poll = Timer.periodic(
-        const Duration(milliseconds: 1200), (_) => _pollOnce());
+  // Strictly sequential polling — the next command only goes out after the
+  // previous one has fully returned, so nothing interrupts the adapter.
+  Future<void> _pollLoop() async {
+    while (status == ObdStatus.connected) {
+      await _pollOnce();
+      await Future.delayed(const Duration(milliseconds: 500));
+    }
   }
 
   Future<void> _pollOnce() async {
@@ -190,7 +208,6 @@ class ObdService extends ChangeNotifier {
   }
 
   Future<void> disconnect() async {
-    _poll?.cancel();
     await _notifySub?.cancel();
     await _scanSub?.cancel();
     try {
