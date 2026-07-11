@@ -15,6 +15,7 @@ class Store extends ChangeNotifier {
   final List<Vehicle> vehicles = [];
   final List<FillUp> fillups = [];
   final List<Trip> trips = [];
+  final List<Drive> drives = [];
   String? currentVehicleId;
 
   SharedPreferences? _prefs;
@@ -38,6 +39,7 @@ class Store extends ChangeNotifier {
         'vehicles': vehicles.map((v) => v.toJson()).toList(),
         'fillups': fillups.map((f) => f.toJson()).toList(),
         'trips': trips.map((t) => t.toJson()).toList(),
+        'drives': drives.map((d) => d.toJson()).toList(),
         'currentVehicleId': currentVehicleId,
       };
 
@@ -54,6 +56,10 @@ class Store extends ChangeNotifier {
       ..clear()
       ..addAll((data['trips'] as List? ?? const [])
           .map((e) => Trip.fromJson(e as Map<String, dynamic>)));
+    drives
+      ..clear()
+      ..addAll((data['drives'] as List? ?? const [])
+          .map((e) => Drive.fromJson(e as Map<String, dynamic>)));
     currentVehicleId = data['currentVehicleId'] as String?;
   }
 
@@ -189,6 +195,29 @@ class Store extends ChangeNotifier {
 
   void deleteTrip(String id) {
     trips.removeWhere((t) => t.id == id);
+    _save();
+    notifyListeners();
+  }
+
+  // ---- drives (auto-logged from OBD) ----
+
+  List<Drive> drivesFor(String vehicleId) =>
+      drives.where((d) => d.vehicleId == vehicleId).toList()
+        ..sort((a, b) => b.start.compareTo(a.start));
+
+  List<Drive> get currentDrives => drivesFor(currentVehicleId!);
+
+  DriveStats driveStatsFor(String vehicleId) =>
+      computeDriveStats(drives.where((d) => d.vehicleId == vehicleId).toList());
+
+  void addDrive(Drive d) {
+    drives.add(d);
+    _save();
+    notifyListeners();
+  }
+
+  void deleteDrive(String id) {
+    drives.removeWhere((d) => d.id == id);
     _save();
     notifyListeners();
   }

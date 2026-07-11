@@ -4,6 +4,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'drive_logger.dart';
+
 enum ObdStatus { idle, scanning, connecting, connected, error }
 
 /// Talks to an ELM327 OBD-II dongle over BLE (e.g. Vgate iCar Pro BLE 4.0).
@@ -28,6 +30,10 @@ class ObdService extends ChangeNotifier {
   int? rpm;
   double? fuelLevelPct;
   double? instantMpg;
+  double? mafGps; // mass airflow, g/s
+  double? batteryLifePct; // hybrid battery pack remaining life
+  bool evMode = false; // moving but burning ~no fuel (electric)
+  List<String> dtcCodes = const [];
 
   final List<String> log = [];
   final StringBuffer _buf = StringBuffer();
@@ -201,17 +207,32 @@ class ObdService extends ChangeNotifier {
       final fl = _parse(await _send('012F'), '412F');
       if (fl.isNotEmpty) fuelLevelPct = fl[0] * 100 / 255;
 
-      final fr = _parse(await _send('015E'), '415E');
-      if (fr.length >= 2) {
-        final lph = ((fr[0] * 256) + fr[1]) / 20.0; // litres/hour
-        final galph = lph / 3.785411784;
-        final mph = speedMph ?? 0;
-        if (mph == 0) {
+      // Mass airflow (g/s) — this hybrid hides fuel-rate 015E, so fuel burn is
+      // derived from airflow instead.
+      final maf = _parse(await _send('0110'), '4110');
+      mafGps = maf.length >= 2 ? ((maf[0] * 256) + maf[1]) / 100.0 : null;
+
+      // Hybrid battery pack remaining life (%), if the car reports it.
+      final bl = _parse(await _send('015B'), '415B');
+      if (bl.isNotEmpty) batteryLifePct = bl[0] * 100 / 255;
+
+      // Instant MPG from airflow (captures EV mode as near-zero burn).
+      final mph = speedMph ?? 0;
+      if (mafGps != null) {
+        final galPerHour = (mafGps! / 14.7) * 3600 / 2820.0;
+        if (mph < 1) {
           instantMpg = 0;
-        } else if (galph > 0.05) {
-          instantMpg = mph / galph;
+          evMode = false;
+        } else if (galPerHour < 0.02) {
+          instantMpg = null; // moving on battery
+          evMode = true;
+        } else {
+          instantMpg = mph / galPerHour;
+          evMode = false;
         }
       }
+
+      DriveLogger.instance.onSample(speedMph, mafGps, batteryLifePct);
       notifyListeners();
     } catch (_) {
       // transient read error — keep polling
@@ -233,7 +254,36 @@ class ObdService extends ChangeNotifier {
     return bytes;
   }
 
+  /// Reads stored diagnostic trouble codes (mode 03).
+  Future<void> readDtcs() async {
+    if (status != ObdStatus.connected) return;
+    final resp = await _send('03', timeout: const Duration(seconds: 6));
+    dtcCodes = _decodeDtcs(resp);
+    _log('DTCs: ${dtcCodes.isEmpty ? 'none' : dtcCodes.join(', ')}');
+    notifyListeners();
+  }
+
+  List<String> _decodeDtcs(String resp) {
+    final cleaned = resp.replaceAll(RegExp(r'[\s>]'), '').toUpperCase();
+    final idx = cleaned.indexOf('43');
+    if (idx < 0) return const [];
+    final hex = cleaned.substring(idx + 2);
+    final codes = <String>[];
+    for (var i = 0; i + 4 <= hex.length; i += 4) {
+      final group = hex.substring(i, i + 4);
+      if (group == '0000') continue;
+      final a = int.tryParse(group.substring(0, 2), radix: 16);
+      if (a == null) break;
+      final letter = ['P', 'C', 'B', 'U'][(a & 0xC0) >> 6];
+      final d1 = (a & 0x30) >> 4;
+      final d2 = (a & 0x0F).toRadixString(16).toUpperCase();
+      codes.add('$letter$d1$d2${group.substring(2)}');
+    }
+    return codes;
+  }
+
   Future<void> disconnect() async {
+    DriveLogger.instance.finalizeIfLogging();
     await _notifySub?.cancel();
     await _scanSub?.cancel();
     try {
@@ -245,6 +295,9 @@ class ObdService extends ChangeNotifier {
     rpm = null;
     fuelLevelPct = null;
     instantMpg = null;
+    mafGps = null;
+    batteryLifePct = null;
+    evMode = false;
     status = ObdStatus.idle;
     _log('Disconnected');
     notifyListeners();

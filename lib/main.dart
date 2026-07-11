@@ -6,8 +6,10 @@ import 'log_view.dart';
 import 'dashboard_view.dart';
 import 'trips_view.dart';
 import 'stations_view.dart';
+import 'drives_view.dart';
 import 'settings_view.dart';
 import 'obd_view.dart';
+import 'obd_service.dart';
 import 'github_sync.dart';
 import 'google_service.dart';
 import 'update_checker.dart';
@@ -51,19 +53,35 @@ class HomeShell extends StatefulWidget {
   State<HomeShell> createState() => _HomeShellState();
 }
 
-class _HomeShellState extends State<HomeShell> {
+class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
   int _index = 0;
   bool _checkedUpdate = false;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!_checkedUpdate) {
         _checkedUpdate = true;
         autoCheck(context);
       }
+      // Try to reconnect the OBD dongle automatically on launch.
+      ObdService.instance.autoConnect();
     });
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      ObdService.instance.autoConnect();
+    }
   }
 
   @override
@@ -102,6 +120,7 @@ class _HomeShellState extends State<HomeShell> {
               LogView(),
               TripsView(),
               StationsView(),
+              DrivesView(),
             ],
           ),
           floatingActionButton: _index == 1
@@ -131,6 +150,10 @@ class _HomeShellState extends State<HomeShell> {
                   icon: Icon(Icons.sell_outlined),
                   selectedIcon: Icon(Icons.sell),
                   label: 'Stations'),
+              NavigationDestination(
+                  icon: Icon(Icons.insights_outlined),
+                  selectedIcon: Icon(Icons.insights),
+                  label: 'Drives'),
             ],
           ),
         );

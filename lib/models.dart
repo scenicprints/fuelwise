@@ -275,3 +275,133 @@ class Trip {
             DateTime.now(),
       );
 }
+
+/// An automatically-logged drive, split into city vs highway from the OBD
+/// speed trace. Fuel is integrated from the airflow sensor (0 in pure EV).
+class Drive {
+  final String id;
+  String vehicleId;
+  DateTime start;
+  DateTime end;
+  double cityMiles;
+  double highwayMiles;
+  double cityGallons;
+  double highwayGallons;
+  double? minBattery; // % (hybrid battery life PID, if available)
+  double? maxBattery;
+
+  Drive({
+    required this.id,
+    required this.vehicleId,
+    required this.start,
+    required this.end,
+    this.cityMiles = 0,
+    this.highwayMiles = 0,
+    this.cityGallons = 0,
+    this.highwayGallons = 0,
+    this.minBattery,
+    this.maxBattery,
+  });
+
+  double get miles => cityMiles + highwayMiles;
+  double get gallons => cityGallons + highwayGallons;
+  double get minutes => end.difference(start).inSeconds / 60.0;
+  double get avgMph => minutes > 0 ? miles / (minutes / 60.0) : 0;
+
+  // MPG getters return null when effectively electric (negligible fuel burned).
+  double? get mpg => gallons > 0.01 ? miles / gallons : null;
+  double? get cityMpg => cityGallons > 0.01 ? cityMiles / cityGallons : null;
+  double? get highwayMpg =>
+      highwayGallons > 0.01 ? highwayMiles / highwayGallons : null;
+
+  /// Share of miles driven on electric (no fuel) — a nice hybrid stat.
+  double get evShare {
+    if (miles <= 0) return 0;
+    // Approximate: miles where fuel was ~0. We don't track per-segment EV, so
+    // estimate from overall burn vs a nominal gas-only baseline is unreliable;
+    // instead report 0 here and rely on per-drive mpg. Kept for future use.
+    return 0;
+  }
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'vehicleId': vehicleId,
+        'start': start.toIso8601String(),
+        'end': end.toIso8601String(),
+        'cityMiles': cityMiles,
+        'highwayMiles': highwayMiles,
+        'cityGallons': cityGallons,
+        'highwayGallons': highwayGallons,
+        'minBattery': minBattery,
+        'maxBattery': maxBattery,
+      };
+
+  factory Drive.fromJson(Map<String, dynamic> j) => Drive(
+        id: j['id'] as String,
+        vehicleId: j['vehicleId'] as String,
+        start: DateTime.parse(j['start'] as String),
+        end: DateTime.parse(j['end'] as String),
+        cityMiles: (j['cityMiles'] as num?)?.toDouble() ?? 0,
+        highwayMiles: (j['highwayMiles'] as num?)?.toDouble() ?? 0,
+        cityGallons: (j['cityGallons'] as num?)?.toDouble() ?? 0,
+        highwayGallons: (j['highwayGallons'] as num?)?.toDouble() ?? 0,
+        minBattery: (j['minBattery'] as num?)?.toDouble(),
+        maxBattery: (j['maxBattery'] as num?)?.toDouble(),
+      );
+}
+
+/// Aggregate city/highway stats across drives.
+class DriveStats {
+  final double cityMiles;
+  final double highwayMiles;
+  final double? cityMpg;
+  final double? highwayMpg;
+  final double? overallMpg;
+  final int count;
+  final List<double> mpgSeries; // per-drive overall mpg, oldest -> newest
+
+  const DriveStats({
+    required this.cityMiles,
+    required this.highwayMiles,
+    required this.cityMpg,
+    required this.highwayMpg,
+    required this.overallMpg,
+    required this.count,
+    required this.mpgSeries,
+  });
+
+  static const empty = DriveStats(
+    cityMiles: 0,
+    highwayMiles: 0,
+    cityMpg: null,
+    highwayMpg: null,
+    overallMpg: null,
+    count: 0,
+    mpgSeries: [],
+  );
+}
+
+DriveStats computeDriveStats(List<Drive> drives) {
+  if (drives.isEmpty) return DriveStats.empty;
+  double cMi = 0, hMi = 0, cGal = 0, hGal = 0;
+  final ordered = [...drives]..sort((a, b) => a.start.compareTo(b.start));
+  final series = <double>[];
+  for (final d in ordered) {
+    cMi += d.cityMiles;
+    hMi += d.highwayMiles;
+    cGal += d.cityGallons;
+    hGal += d.highwayGallons;
+    final m = d.mpg;
+    if (m != null) series.add(m);
+  }
+  final totMi = cMi + hMi, totGal = cGal + hGal;
+  return DriveStats(
+    cityMiles: cMi,
+    highwayMiles: hMi,
+    cityMpg: cGal > 0.01 ? cMi / cGal : null,
+    highwayMpg: hGal > 0.01 ? hMi / hGal : null,
+    overallMpg: totGal > 0.01 ? totMi / totGal : null,
+    count: drives.length,
+    mpgSeries: series,
+  );
+}

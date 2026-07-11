@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'obd_service.dart';
+import 'drive_logger.dart';
 
 class ObdScreen extends StatefulWidget {
   const ObdScreen({super.key});
@@ -111,6 +112,11 @@ class _ObdScreenState extends State<ObdScreen> {
   }
 
   List<Widget> _connected(BuildContext context, ObdService obd) {
+    final cs = Theme.of(context).colorScheme;
+    final logger = DriveLogger.instance;
+    final instant = obd.evMode
+        ? 'EV'
+        : (obd.instantMpg == null ? '–' : obd.instantMpg!.toStringAsFixed(1));
     return [
       GridView.count(
         crossAxisCount: 2,
@@ -123,9 +129,7 @@ class _ObdScreenState extends State<ObdScreen> {
           _tile(context, 'Speed',
               obd.speedMph == null ? '–' : obd.speedMph!.toStringAsFixed(0),
               'mph'),
-          _tile(context, 'Instant MPG',
-              obd.instantMpg == null ? '–' : obd.instantMpg!.toStringAsFixed(1),
-              'mpg'),
+          _tile(context, 'Instant MPG', instant, obd.evMode ? '' : 'mpg'),
           _tile(context, 'RPM', obd.rpm?.toString() ?? '–', ''),
           _tile(
               context,
@@ -134,8 +138,38 @@ class _ObdScreenState extends State<ObdScreen> {
                   ? '–'
                   : obd.fuelLevelPct!.toStringAsFixed(0),
               '%'),
+          _tile(
+              context,
+              'Battery health',
+              obd.batteryLifePct == null
+                  ? '–'
+                  : obd.batteryLifePct!.toStringAsFixed(0),
+              '%'),
         ],
       ),
+      const SizedBox(height: 12),
+      if (logger.logging) ...[
+        Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: cs.primaryContainer,
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Row(children: [
+            Icon(Icons.fiber_manual_record, color: cs.error, size: 14),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                'Logging this drive: ${logger.miles.toStringAsFixed(1)} mi'
+                '${logger.mpg != null ? ' · ${logger.mpg!.toStringAsFixed(1)} mpg' : ''}',
+                style: TextStyle(color: cs.onPrimaryContainer),
+              ),
+            ),
+          ]),
+        ),
+        const SizedBox(height: 12),
+      ],
+      _dtcSection(context, obd),
       const SizedBox(height: 12),
       OutlinedButton.icon(
         onPressed: () => obd.disconnect(),
@@ -144,6 +178,40 @@ class _ObdScreenState extends State<ObdScreen> {
         style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(46)),
       ),
     ];
+  }
+
+  Widget _dtcSection(BuildContext context, ObdService obd) {
+    final cs = Theme.of(context).colorScheme;
+    return Card(
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(children: [
+              Icon(Icons.build_outlined, color: cs.primary, size: 20),
+              const SizedBox(width: 8),
+              const Expanded(
+                  child: Text('Health check',
+                      style: TextStyle(fontWeight: FontWeight.w600))),
+              TextButton(
+                  onPressed: () => obd.readDtcs(),
+                  child: const Text('Read codes')),
+            ]),
+            if (obd.dtcCodes.isEmpty)
+              Text('Tap "Read codes" to check for stored trouble codes.',
+                  style: TextStyle(color: cs.outline, fontSize: 12))
+            else
+              for (final c in obd.dtcCodes)
+                Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: Text('⚠ $c', style: const TextStyle(fontSize: 13)),
+                ),
+          ],
+        ),
+      ),
+    );
   }
 
   Widget _tile(BuildContext context, String label, String value, String unit) {
